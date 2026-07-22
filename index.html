@@ -1007,8 +1007,8 @@
 
     function switchActiveNote(newId) {
       activeNoteId = newId;
-      saveToStorage();
       
+      // Highlight active item visually in the DOM
       notesListEl.querySelectorAll('.note-item').forEach(el => {
         if (el.dataset.id === activeNoteId) {
           el.classList.add('active');
@@ -1016,8 +1016,10 @@
           el.classList.remove('active');
         }
       });
-
+    
+      // Load content into editor first, then sync state
       loadActiveNote();
+      saveToStorage();
     }
 
     function createNewNote(animate = true) {
@@ -1030,15 +1032,19 @@
       
       notes.push(newNote);
       activeNoteId = newNote.id;
-      saveToStorage();
-
-      const newEl = createNoteElement(newNote, animate);
-      notesListEl.appendChild(newEl);
+      
+      // Re-render full list to ensure clean DOM state without ghost duplicate elements
+      renderSidebarFull();
+      
+      // Switch to the newly created note and save state
       switchActiveNote(newNote.id);
       noteTitleEl.focus();
-
+    
       if (animate) {
-        newEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        const activeEl = notesListEl.querySelector('.note-item.active');
+        if (activeEl) {
+          activeEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }
       }
     }
 

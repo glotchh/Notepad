@@ -34,7 +34,87 @@
       position: relative;
     }
 
-    /* Floating/Hanging Sidebar Styling */
+    /* Password Modal Overlay */
+    .password-modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(19, 19, 20, 0.95);
+      backdrop-filter: blur(8px);
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .password-card {
+      background: var(--sidebar-bg);
+      border: 1px solid var(--border-color);
+      padding: 32px;
+      border-radius: 20px;
+      width: 320px;
+      max-width: 90%;
+      text-align: center;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+    }
+
+    .password-card h2 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .password-card p {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+    }
+
+    .password-card input[type="password"] {
+      width: 100%;
+      padding: 12px;
+      background: var(--bg-dark);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      color: var(--text-main);
+      font-size: 16px;
+      text-align: center;
+      outline: none;
+      margin-bottom: 12px;
+      transition: border-color 0.2s;
+    }
+
+    .password-card input[type="password"]:focus {
+      border-color: var(--accent);
+    }
+
+    .password-card button {
+      width: 100%;
+      padding: 12px;
+      background: var(--accent);
+      color: #131314;
+      border: none;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    .password-card button:hover {
+      opacity: 0.9;
+    }
+
+    .passcode-error {
+      color: #ff6b6b;
+      font-size: 12px;
+      margin-top: 12px;
+      display: none;
+    }
+
+    /* Hanging Sidebar Styling */
     .sidebar {
       width: 260px;
       background-color: var(--sidebar-bg);
@@ -43,14 +123,12 @@
       padding: 20px 14px;
       user-select: none;
       z-index: 100;
-      /* Hanging overlay effect */
       box-shadow: 6px 0 24px rgba(0, 0, 0, 0.4);
       border-right: 1px solid rgba(255, 255, 255, 0.05);
       position: relative;
       transition: transform 0.3s ease;
     }
 
-    /* Mobile Overlay Backdrop */
     .sidebar-overlay {
       display: none;
       position: fixed;
@@ -104,7 +182,6 @@
       padding-right: 2px;
     }
 
-    /* Note Item Animations */
     .note-item {
       display: flex;
       align-items: center;
@@ -207,7 +284,6 @@
       overflow: hidden;
     }
 
-    /* Mobile Sidebar Toggle Button */
     .menu-toggle-btn {
       display: none;
       background: rgba(30, 31, 32, 0.85);
@@ -242,7 +318,6 @@
       opacity: 1;
     }
 
-    /* Dark Overlay for readability */
     .bg-dimmer {
       position: absolute;
       top: 0;
@@ -311,7 +386,7 @@
       text-shadow: 0 1px 2px rgba(0,0,0,0.4);
     }
 
-    /* Bottom Right Control Bar */
+    /* Controls Bar */
     .controls-container {
       position: absolute;
       bottom: 20px;
@@ -329,7 +404,6 @@
       box-shadow: 0 4px 16px rgba(0,0,0,0.3);
     }
 
-    /* Toggle Switch */
     .switch {
       position: relative;
       display: inline-block;
@@ -373,7 +447,6 @@
       background-color: #131314;
     }
 
-    /* Gear Button */
     .gear-btn {
       background: none;
       border: none;
@@ -393,7 +466,6 @@
       transform: rotate(45deg);
     }
 
-    /* Config Popover */
     .popover {
       position: absolute;
       bottom: 60px;
@@ -513,7 +585,6 @@
       border-radius: 3px;
     }
 
-    /* --- Responsive Mobile Styles --- */
     @media (max-width: 768px) {
       .sidebar {
         position: fixed;
@@ -546,12 +617,23 @@
       }
 
       .delete-btn {
-        opacity: 1; /* Keep visible on touch screens */
+        opacity: 1;
       }
     }
   </style>
 </head>
 <body>
+
+  <!-- Passcode Overlay -->
+  <div class="password-modal-overlay" id="passwordModal">
+    <div class="password-card">
+      <h2>Protected Notepad</h2>
+      <p>Enter passcode to unlock</p>
+      <input type="password" id="passcodeInput" placeholder="Passcode" autocomplete="off">
+      <button id="submitPasscodeBtn">Unlock</button>
+      <div id="passcodeError" class="passcode-error">Incorrect passcode</div>
+    </div>
+  </div>
 
   <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
@@ -612,10 +694,9 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-    import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+    import { getDatabase, ref, set, onValue, get, child } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-    // --- Firebase Configuration ---
-    // Update the values below with your Firebase Database details for cloud sync across laptop and phone.
+    // --- YOUR FIREBASE CONFIGURATION ---
     const firebaseConfig = {
       apiKey: "YOUR_API_KEY",
       authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
@@ -633,12 +714,12 @@
         db = getDatabase(app);
       }
     } catch (e) {
-      console.warn("Firebase not configured. Falling back to local storage.", e);
+      console.warn("Firebase not properly configured.", e);
     }
 
     const DEFAULT_BG_URL = 'https://motionbgs.com/media/4553/miku-nakano.960x540.mp4';
 
-    // State
+    // App State
     let notes = JSON.parse(localStorage.getItem('notepad_notes')) || [];
     let activeNoteId = localStorage.getItem('notepad_active_id') || null;
     let bgEnabled = JSON.parse(localStorage.getItem('notepad_bg_enabled') ?? 'true');
@@ -649,6 +730,11 @@
     let isRemoteUpdate = false;
 
     // DOM Elements
+    const passwordModal = document.getElementById('passwordModal');
+    const passcodeInputs = document.getElementById('passcodeInput');
+    const submitPasscodeBtn = document.getElementById('submitPasscodeBtn');
+    const passcodeError = document.getElementById('passcodeError');
+
     const notesListEl = document.getElementById('notesList');
     const newNoteBtn = document.getElementById('newNoteBtn');
     const noteTitleEl = document.getElementById('noteTitle');
@@ -667,12 +753,61 @@
     const brightnessVal = document.getElementById('brightnessVal');
     const saveBgBtn = document.getElementById('saveBgBtn');
 
-    // Mobile Elements
     const sidebar = document.getElementById('sidebar');
     const menuToggleBtn = document.getElementById('menuToggleBtn');
     const sidebarOverlay = document.getElementById('sidebarOverlay');
 
-    function init() {
+    // SHA-256 Hashing helper
+    async function hashPassword(str) {
+      const utf8 = new TextEncoder().encode(str);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', utf8);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // --- Authentication Flow ---
+    async function checkAuth() {
+      const isAuth = localStorage.getItem('notepad_authenticated');
+      if (isAuth === 'true') {
+        passwordModal.style.display = 'none';
+        bootApp();
+        return;
+      }
+
+      async function verify() {
+        const typed = passcodeInputs.value.trim();
+        if (!typed) return;
+        const hashed = await hashPassword(typed);
+
+        if (db) {
+          try {
+            const snapshot = await get(child(ref(db), 'app_config/passcode_hash'));
+            if (snapshot.exists() && snapshot.val() === hashed) {
+              localStorage.setItem('notepad_authenticated', 'true');
+              passwordModal.style.display = 'none';
+              bootApp();
+            } else {
+              passcodeError.style.display = 'block';
+              passcodeInputs.value = '';
+            }
+          } catch (err) {
+            console.error("Auth check failed:", err);
+            passcodeError.textContent = "Connection error";
+            passcodeError.style.display = 'block';
+          }
+        } else {
+          passcodeError.textContent = "Firebase config missing";
+          passcodeError.style.display = 'block';
+        }
+      }
+
+      submitPasscodeBtn.addEventListener('click', verify);
+      passcodeInputs.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') verify();
+      });
+    }
+
+    function bootApp() {
       setupMobileEvents();
       setupDragAndDrop();
       initBackgroundControls();
@@ -696,14 +831,13 @@
       }
     }
 
-    // --- Cloud Syncing (Firebase) ---
     function setupCloudSync() {
       const dataRef = ref(db, 'notepad_data');
       onValue(dataRef, (snapshot) => {
         const data = snapshot.val();
-        if (data) {
+        if (data && typeof data === 'object') {
           isRemoteUpdate = true;
-          if (data.notes) notes = data.notes;
+          if (Array.isArray(data.notes)) notes = data.notes;
           if (data.activeNoteId) activeNoteId = data.activeNoteId;
           if (data.bgEnabled !== undefined) bgEnabled = data.bgEnabled;
           if (data.bgUrl) bgUrl = data.bgUrl;
@@ -733,7 +867,6 @@
       brightnessVal.textContent = `${bgBrightness}%`;
     }
 
-    // --- Mobile Interface Handling ---
     function setupMobileEvents() {
       menuToggleBtn.addEventListener('click', () => {
         sidebar.classList.toggle('open');
@@ -748,7 +881,6 @@
       sidebarOverlay.classList.remove('active');
     }
 
-    // --- Background Handling ---
     function initBackgroundControls() {
       updateBackgroundUI();
       applyBackground();
@@ -828,7 +960,6 @@
       }
     }
 
-    // --- Core Notepad Functions ---
     function createNoteElement(note, animate = false) {
       const item = document.createElement('div');
       item.className = `note-item ${note.id === activeNoteId ? 'active' : ''} ${animate ? 'newly-added' : ''}`;
@@ -948,7 +1079,6 @@
     }
 
     function saveToStorage() {
-      // Local Backup
       localStorage.setItem('notepad_notes', JSON.stringify(notes));
       localStorage.setItem('notepad_active_id', activeNoteId);
       localStorage.setItem('notepad_bg_enabled', bgEnabled);
@@ -956,7 +1086,6 @@
       localStorage.setItem('notepad_bg_blur', bgBlur);
       localStorage.setItem('notepad_bg_brightness', bgBrightness);
 
-      // Firebase Realtime Sync
       if (db) {
         set(ref(db, 'notepad_data'), {
           notes,
@@ -990,7 +1119,6 @@
       }
     }
 
-    // --- Drag and Drop ---
     function setupDragAndDrop() {
       let draggedItem = null;
 
@@ -1050,12 +1178,12 @@
       saveToStorage();
     }
 
-    // Listeners
     newNoteBtn.addEventListener('click', () => createNewNote(true));
     noteTitleEl.addEventListener('input', triggerAutoSave);
     noteContentEl.addEventListener('input', triggerAutoSave);
 
-    init();
+    // Initialize application check
+    checkAuth();
   </script>
 </body>
 </html>

@@ -892,6 +892,9 @@
   function setupCloudSync() {
     const dataRef = ref(db, 'notepad_data');
     onValue(dataRef, (snapshot) => {
+      // If a local auto-save timeout is pending, don't let incoming remote data recreate DOM elements
+      if (saveTimeout) return;
+  
       const data = snapshot.val();
       if (data && typeof data === 'object') {
         isRemoteUpdate = true;
@@ -901,7 +904,7 @@
         if (data.bgUrl) bgUrl = data.bgUrl;
         if (data.bgBlur) bgBlur = data.bgBlur;
         if (data.bgBrightness) bgBrightness = data.bgBrightness;
-
+  
         renderSidebarFull();
         loadActiveNote();
         updateBackgroundUI();
@@ -1144,18 +1147,23 @@
       content: '',
       updatedAt: Date.now()
     };
-
+  
     notes.push(newNote);
     activeNoteId = newNote.id;
-
+  
+    // Append new note element
     const newEl = createNoteElement(newNote, animate);
     notesListEl.appendChild(newEl);
-
+  
+    // Focus and select active note
     switchActiveNote(newNote.id);
     noteTitleEl.focus();
-
+  
     if (animate) {
-      newEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      // Ensure the browser registers the element in the layout before scrolling
+      requestAnimationFrame(() => {
+        newEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      });
     }
   }
 

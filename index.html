@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Minimal Notepad</title>
-  <!-- Favicon -->
+  <title>Personal Notepad</title>
   <link rel="icon" type="image/png" href="favicon.png">
+  
   <style>
     :root {
       --bg-dark: #131314;
@@ -32,6 +32,7 @@
       color: var(--text-main);
       font-family: var(--font-family);
       overflow: hidden;
+      position: relative;
     }
 
     /* Floating/Hanging Sidebar Styling */
@@ -42,11 +43,31 @@
       flex-direction: column;
       padding: 20px 14px;
       user-select: none;
-      z-index: 10;
-      /* Hanging overlay effect */
+      z-index: 100;
       box-shadow: 6px 0 24px rgba(0, 0, 0, 0.4);
       border-right: 1px solid rgba(255, 255, 255, 0.05);
       position: relative;
+      transition: transform 0.3s ease;
+    }
+
+    /* Backdrop overlay for mobile sidebar */
+    .sidebar-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px);
+      z-index: 90;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .sidebar-overlay.active {
+      display: block;
+      opacity: 1;
     }
 
     .new-note-btn {
@@ -88,13 +109,13 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 10px 14px;
+      padding: 12px 14px;
       border-radius: 12px;
       cursor: grab;
       color: var(--text-muted);
       font-size: 14px;
       transition: background 0.2s ease, color 0.15s ease, transform 0.25s ease, opacity 0.25s ease, max-height 0.25s ease, margin 0.25s ease, padding 0.25s ease;
-      max-height: 40px;
+      max-height: 48px;
       opacity: 1;
       overflow: hidden;
     }
@@ -147,10 +168,10 @@
       border: none;
       color: var(--text-muted);
       cursor: pointer;
-      font-size: 16px;
-      padding: 2px 6px;
+      font-size: 18px;
+      padding: 4px 8px;
       border-radius: 50%;
-      opacity: 0;
+      opacity: 0.6;
       transition: opacity 0.15s ease, color 0.15s ease;
     }
 
@@ -171,7 +192,7 @@
       100% {
         opacity: 1;
         transform: translateY(0) scale(1);
-        max-height: 40px;
+        max-height: 48px;
       }
     }
 
@@ -184,6 +205,21 @@
       padding: 28px 48px;
       background-color: var(--bg-dark);
       overflow: hidden;
+    }
+
+    /* Mobile Sidebar Toggle Button */
+    .menu-toggle-btn {
+      display: none;
+      background: rgba(30, 31, 32, 0.85);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 18px;
+      cursor: pointer;
+      z-index: 10;
+      margin-right: 12px;
+      backdrop-filter: blur(8px);
     }
 
     /* Wallpaper Layers */
@@ -236,6 +272,12 @@
       margin-bottom: 16px;
     }
 
+    .editor-header-left {
+      display: flex;
+      align-items: center;
+      flex: 1;
+    }
+
     .title-input {
       background: transparent;
       border: none;
@@ -243,7 +285,7 @@
       color: var(--text-main);
       font-size: 24px;
       font-weight: 600;
-      width: 70%;
+      width: 100%;
       text-shadow: 0 1px 3px rgba(0,0,0,0.5);
     }
 
@@ -252,6 +294,8 @@
       color: var(--text-muted);
       transition: opacity 0.3s ease;
       text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+      white-space: nowrap;
+      margin-left: 12px;
     }
 
     .editor-textarea {
@@ -364,6 +408,7 @@
       flex-direction: column;
       gap: 12px;
       width: 300px;
+      max-width: calc(100vw - 40px);
       opacity: 0;
       pointer-events: none;
       transform: translateY(10px) scale(0.95);
@@ -404,9 +449,9 @@
       background: #131314;
       border: 1px solid var(--border-color);
       color: var(--text-main);
-      padding: 8px 12px;
+      padding: 10px 12px;
       border-radius: 8px;
-      font-size: 12px;
+      font-size: 14px;
       outline: none;
     }
 
@@ -418,25 +463,25 @@
       -webkit-appearance: none;
       appearance: none;
       width: 100%;
-      height: 4px;
+      height: 6px;
       background: #2b2c2e;
-      border-radius: 2px;
+      border-radius: 3px;
       outline: none;
     }
 
     .popover input[type="range"]::-webkit-slider-thumb {
       -webkit-appearance: none;
       appearance: none;
-      width: 14px;
-      height: 14px;
+      width: 18px;
+      height: 18px;
       border-radius: 50%;
       background: var(--accent);
       cursor: pointer;
     }
 
     .popover input[type="range"]::-moz-range-thumb {
-      width: 14px;
-      height: 14px;
+      width: 18px;
+      height: 18px;
       border-radius: 50%;
       background: var(--accent);
       cursor: pointer;
@@ -447,10 +492,10 @@
       background: var(--accent);
       color: #131314;
       border: none;
-      padding: 8px;
+      padding: 10px;
       border-radius: 8px;
       font-weight: 600;
-      font-size: 12px;
+      font-size: 13px;
       cursor: pointer;
       transition: opacity 0.2s;
       margin-top: 4px;
@@ -467,32 +512,70 @@
       background: #37393b;
       border-radius: 3px;
     }
+
+    /* --- Responsive Mobile Styles --- */
+    @media (max-width: 768px) {
+      .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100vh;
+        transform: translateX(-100%);
+      }
+
+      .sidebar.open {
+        transform: translateX(0);
+      }
+
+      .menu-toggle-btn {
+        display: block;
+      }
+
+      .main-content {
+        padding: 16px 20px;
+      }
+
+      .title-input {
+        font-size: 20px;
+      }
+
+      .controls-container {
+        bottom: 16px;
+        right: 16px;
+        padding: 8px 14px;
+      }
+
+      .delete-btn {
+        opacity: 1; /* Keep visible on touch devices */
+      }
+    }
   </style>
 </head>
 <body>
 
-  <!-- Sidebar -->
-  <aside class="sidebar">
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <aside class="sidebar" id="sidebar">
     <button class="new-note-btn" id="newNoteBtn">
       <span>+</span> New note
     </button>
     <div class="notes-list" id="notesList"></div>
   </aside>
 
-  <!-- Main Content Area -->
   <main class="main-content" id="mainContent">
-    <!-- Background Layers -->
     <video class="bg-overlay" id="bgVideo" autoplay loop muted playsinline style="display: none;"></video>
     <div class="bg-overlay" id="bgImage" style="display: none;"></div>
     <div class="bg-dimmer"></div>
 
     <div class="editor-header">
-      <input type="text" id="noteTitle" class="title-input" placeholder="Untitled Note">
+      <div class="editor-header-left">
+        <button class="menu-toggle-btn" id="menuToggleBtn">☰</button>
+        <input type="text" id="noteTitle" class="title-input" placeholder="Untitled Note">
+      </div>
       <span id="saveStatus" class="save-status">Saved</span>
     </div>
     <textarea id="noteContent" class="editor-textarea" placeholder="Start typing..."></textarea>
 
-    <!-- Bottom Right Controls -->
     <div class="controls-container">
       <label class="switch">
         <input type="checkbox" id="bgToggle">
@@ -501,7 +584,6 @@
       <button class="gear-btn" id="gearBtn" title="Change Background Settings">⚙</button>
     </div>
 
-    <!-- Background Config Popover -->
     <div class="popover" id="popover">
       <div class="popover-group">
         <label for="bgUrlInput">Wallpaper Link (Image / GIF / Video)</label>
@@ -528,7 +610,32 @@
     </div>
   </main>
 
-  <script>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+    // --- Firebase Setup ---
+    // Note: Configure your Firebase project details below to enable global cross-device synchronization.
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+      databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_PROJECT_ID.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+
+    let db = null;
+    try {
+      if (firebaseConfig.apiKey !== "YOUR_API_KEY") {
+        const app = initializeApp(firebaseConfig);
+        db = getDatabase(app);
+      }
+    } catch (e) {
+      console.warn("Firebase not properly initialized. Falling back to local storage.", e);
+    }
+
     const DEFAULT_BG_URL = 'https://motionbgs.com/media/4553/miku-nakano.960x540.mp4';
 
     // State
@@ -539,6 +646,7 @@
     let bgBlur = localStorage.getItem('notepad_bg_blur') || '0';
     let bgBrightness = localStorage.getItem('notepad_bg_brightness') || '100';
     let saveTimeout = null;
+    let isRemoteUpdate = false;
 
     // DOM Elements
     const notesListEl = document.getElementById('notesList');
@@ -558,8 +666,25 @@
     const brightnessSlider = document.getElementById('brightnessSlider');
     const brightnessVal = document.getElementById('brightnessVal');
     const saveBgBtn = document.getElementById('saveBgBtn');
+    
+    // Mobile Controls
+    const sidebar = document.getElementById('sidebar');
+    const menuToggleBtn = document.getElementById('menuToggleBtn');
+    const sidebarOverlay = document.getElementById('sidebarOverlay');
 
     function init() {
+      setupMobileEvents();
+      setupDragAndDrop();
+      initBackgroundControls();
+
+      if (db) {
+        setupCloudSync();
+      } else {
+        initLocalData();
+      }
+    }
+
+    function initLocalData() {
       if (notes.length === 0) {
         createNewNote(false);
       } else {
@@ -569,307 +694,7 @@
         renderSidebarFull();
         loadActiveNote();
       }
-      setupDragAndDrop();
-      initBackgroundControls();
     }
 
-    // --- Background Handling ---
-    function initBackgroundControls() {
-      bgToggle.checked = bgEnabled;
-      bgUrlInput.value = bgUrl;
-      blurSlider.value = bgBlur;
-      blurVal.textContent = `${bgBlur}px`;
-      
-      bgBrightness = Math.min(Number(bgBrightness), 100).toString();
-      brightnessSlider.value = bgBrightness;
-      brightnessVal.textContent = `${bgBrightness}%`;
-      
-      applyBackground();
-
-      bgToggle.addEventListener('change', (e) => {
-        bgEnabled = e.target.checked;
-        localStorage.setItem('notepad_bg_enabled', bgEnabled);
-        applyBackground();
-      });
-
-      gearBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        popover.classList.toggle('active');
-      });
-
-      document.addEventListener('click', (e) => {
-        if (!popover.contains(e.target) && e.target !== gearBtn) {
-          popover.classList.remove('active');
-        }
-      });
-
-      // Live adjustments on sliders
-      blurSlider.addEventListener('input', (e) => {
-        bgBlur = e.target.value;
-        blurVal.textContent = `${bgBlur}px`;
-        localStorage.setItem('notepad_bg_blur', bgBlur);
-        applyFilterStyles();
-      });
-
-      brightnessSlider.addEventListener('input', (e) => {
-        bgBrightness = e.target.value;
-        brightnessVal.textContent = `${bgBrightness}%`;
-        localStorage.setItem('notepad_bg_brightness', bgBrightness);
-        applyFilterStyles();
-      });
-
-      saveBgBtn.addEventListener('click', () => {
-        const val = bgUrlInput.value.trim();
-        if (val) {
-          bgUrl = val;
-          localStorage.setItem('notepad_bg_url', bgUrl);
-          applyBackground();
-          popover.classList.remove('active');
-        }
-      });
-    }
-
-    function isVideoUrl(url) {
-      return url.match(/\.(mp4|webm|ogg)$/i) || url.includes('.mp4');
-    }
-
-    function applyFilterStyles() {
-      const filterValue = `blur(${bgBlur}px) brightness(${bgBrightness}%)`;
-      bgVideo.style.filter = filterValue;
-      bgImage.style.filter = filterValue;
-    }
-
-    function applyBackground() {
-      applyFilterStyles();
-      if (bgEnabled) {
-        mainContent.classList.add('bg-active');
-        if (isVideoUrl(bgUrl)) {
-          bgImage.style.display = 'none';
-          bgVideo.style.display = 'block';
-          if (bgVideo.src !== bgUrl) {
-            bgVideo.src = bgUrl;
-            bgVideo.play().catch(() => {});
-          }
-        } else {
-          bgVideo.style.display = 'none';
-          bgImage.style.display = 'block';
-          bgImage.style.backgroundImage = `url('${bgUrl}')`;
-        }
-      } else {
-        mainContent.classList.remove('bg-active');
-      }
-    }
-
-    // --- Core Notepad Functions ---
-    function createNoteElement(note, animate = false) {
-      const item = document.createElement('div');
-      item.className = `note-item ${note.id === activeNoteId ? 'active' : ''} ${animate ? 'newly-added' : ''}`;
-      item.setAttribute('draggable', 'true');
-      item.dataset.id = note.id;
-
-      const titleSpan = document.createElement('span');
-      titleSpan.className = 'note-item-title';
-      titleSpan.textContent = note.title.trim() || 'Untitled Note';
-
-      const delBtn = document.createElement('button');
-      delBtn.className = 'delete-btn';
-      delBtn.innerHTML = '&times;';
-      delBtn.title = 'Delete note';
-
-      delBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        deleteNoteWithAnimation(item, note.id);
-      });
-
-      item.appendChild(titleSpan);
-      item.appendChild(delBtn);
-
-      item.addEventListener('click', () => {
-        if (activeNoteId !== note.id) {
-          switchActiveNote(note.id);
-        }
-      });
-
-      if (animate) {
-        item.addEventListener('animationend', () => {
-          item.classList.remove('newly-added');
-        }, { once: true });
-      }
-
-      return item;
-    }
-
-    function renderSidebarFull() {
-      notesListEl.innerHTML = '';
-      notes.forEach(note => {
-        notesListEl.appendChild(createNoteElement(note, false));
-      });
-    }
-
-    function switchActiveNote(newId) {
-      activeNoteId = newId;
-      localStorage.setItem('notepad_active_id', activeNoteId);
-      
-      notesListEl.querySelectorAll('.note-item').forEach(el => {
-        if (el.dataset.id === activeNoteId) {
-          el.classList.add('active');
-        } else {
-          el.classList.remove('active');
-        }
-      });
-
-      loadActiveNote();
-    }
-
-    function createNewNote(animate = true) {
-      const newNote = {
-        id: Date.now().toString(),
-        title: '',
-        content: '',
-        updatedAt: Date.now()
-      };
-      
-      notes.push(newNote);
-      activeNoteId = newNote.id;
-      saveToStorage();
-
-      const newEl = createNoteElement(newNote, animate);
-      notesListEl.appendChild(newEl);
-      
-      switchActiveNote(newNote.id);
-      noteTitleEl.focus();
-
-      if (animate) {
-        newEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
-      }
-    }
-
-    function loadActiveNote() {
-      const note = notes.find(n => n.id === activeNoteId);
-      if (note) {
-        noteTitleEl.value = note.title;
-        noteContentEl.value = note.content;
-      }
-    }
-
-    function saveActiveNote() {
-      const note = notes.find(n => n.id === activeNoteId);
-      if (note) {
-        note.title = noteTitleEl.value;
-        note.content = noteContentEl.value;
-        note.updatedAt = Date.now();
-
-        saveToStorage();
-
-        const activeTitle = notesListEl.querySelector(`.note-item[data-id="${activeNoteId}"] .note-item-title`);
-        if (activeTitle) {
-          activeTitle.textContent = note.title.trim() || 'Untitled Note';
-        }
-
-        saveStatusEl.textContent = 'Saved';
-        saveStatusEl.style.opacity = '1';
-      }
-    }
-
-    function triggerAutoSave() {
-      saveStatusEl.textContent = 'Saving...';
-      saveStatusEl.style.opacity = '1';
-      clearTimeout(saveTimeout);
-      saveTimeout = setTimeout(saveActiveNote, 400);
-    }
-
-    function saveToStorage() {
-      localStorage.setItem('notepad_notes', JSON.stringify(notes));
-      localStorage.setItem('notepad_active_id', activeNoteId);
-    }
-
-    function deleteNoteWithAnimation(element, id) {
-      element.classList.add('deleting');
-      setTimeout(() => {
-        element.remove();
-        deleteNote(id);
-      }, 250);
-    }
-
-    function deleteNote(id) {
-      notes = notes.filter(n => n.id !== id);
-
-      if (notes.length === 0) {
-        createNewNote(true);
-      } else {
-        if (activeNoteId === id) {
-          switchActiveNote(notes[notes.length - 1].id);
-        }
-        saveToStorage();
-      }
-    }
-
-    // --- Drag and Drop ---
-    function setupDragAndDrop() {
-      let draggedItem = null;
-
-      notesListEl.addEventListener('dragstart', (e) => {
-        if (e.target.classList.contains('note-item')) {
-          draggedItem = e.target;
-          e.target.classList.add('dragging');
-        }
-      });
-
-      notesListEl.addEventListener('dragend', (e) => {
-        if (e.target.classList.contains('note-item')) {
-          e.target.classList.remove('dragging');
-          draggedItem = null;
-          syncNotesOrderFromDOM();
-        }
-      });
-
-      notesListEl.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        const afterElement = getDragAfterElement(notesListEl, e.clientY);
-        if (draggedItem) {
-          if (afterElement == null) {
-            notesListEl.appendChild(draggedItem);
-          } else {
-            notesListEl.insertBefore(draggedItem, afterElement);
-          }
-        }
-      });
-    }
-
-    function getDragAfterElement(container, y) {
-      const draggableElements = [...container.querySelectorAll('.note-item:not(.dragging):not(.deleting)')];
-
-      return draggableElements.reduce((closest, child) => {
-        const box = child.getBoundingClientRect();
-        const offset = y - box.top - box.height / 2;
-        if (offset < 0 && offset > closest.offset) {
-          return { offset: offset, element: child };
-        } else {
-          return closest;
-        }
-      }, { offset: Number.NEGATIVE_INFINITY }).element;
-    }
-
-    function syncNotesOrderFromDOM() {
-      const domItems = [...notesListEl.querySelectorAll('.note-item')];
-      const reorderedNotes = [];
-
-      domItems.forEach(item => {
-        const id = item.dataset.id;
-        const noteObj = notes.find(n => n.id === id);
-        if (noteObj) reorderedNotes.push(noteObj);
-      });
-
-      notes = reorderedNotes;
-      saveToStorage();
-    }
-
-    // Listeners
-    newNoteBtn.addEventListener('click', () => createNewNote(true));
-    noteTitleEl.addEventListener('input', triggerAutoSave);
-    noteContentEl.addEventListener('input', triggerAutoSave);
-
-    init();
-  </script>
-</body>
-</html>
+    // --- Cloud Syncing (Firebase) ---
+    function

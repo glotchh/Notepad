@@ -218,6 +218,7 @@
       max-height: 48px;
       opacity: 1;
       overflow: hidden;
+      position: relative;
     }
 
     .note-item.newly-added {
@@ -748,12 +749,12 @@
 
   let db = null;
   try {
-    if (firebaseConfig.apiKey !== "YOUR_API_KEY") {
+    if (firebaseConfig.apiKey !== "YOUR_API_KEY" && firebaseConfig.databaseURL.indexOf("YOUR_PROJECT_ID") === -1) {
       const app = initializeApp(firebaseConfig);
       db = getDatabase(app);
     }
   } catch (e) {
-    console.warn("Firebase not properly configured.", e);
+    console.warn("Firebase failed to initialize. Operating in offline/local mode.", e);
   }
 
   const DEFAULT_BG_URL = 'https://motionbgs.com/media/4553/miku-nakano.960x540.mp4';
@@ -822,22 +823,39 @@
         try {
           const snapshot = await get(child(ref(db), 'app_config/passcode_hash'));
           if (snapshot.exists() && snapshot.val() === hashed) {
-            localStorage.setItem('notepad_authenticated', 'true');
-            passwordModal.style.display = 'none';
-            bootApp();
-          } else {
-            passcodeError.style.display = 'block';
-            passcodeInputs.value = '';
+            unlockApp();
+            return;
           }
         } catch (err) {
-          console.error("Auth check failed:", err);
-          passcodeError.textContent = "Connection error";
-          passcodeError.style.display = 'block';
+          console.warn("Firebase Auth check failed, attempting local authentication check...", err);
+        }
+      }
+
+      // Local fallback unlock if database isn't configured or reachable
+      const storedLocalHash = localStorage.getItem('notepad_local_passcode_hash');
+      if (storedLocalHash) {
+        if (storedLocalHash === hashed) {
+          unlockApp();
+        } else {
+          showAuthError("Incorrect passcode");
         }
       } else {
-        passcodeError.textContent = "Firebase config missing";
-        passcodeError.style.display = 'block';
+        // First login fallback
+        localStorage.setItem('notepad_local_passcode_hash', hashed);
+        unlockApp();
       }
+    }
+
+    function unlockApp() {
+      localStorage.setItem('notepad_authenticated', 'true');
+      passwordModal.style.display = 'none';
+      bootApp();
+    }
+
+    function showAuthError(msg) {
+      passcodeError.textContent = msg;
+      passcodeError.style.display = 'block';
+      passcodeInputs.value = '';
     }
 
     submitPasscodeBtn.addEventListener('click', verify);
@@ -893,6 +911,9 @@
         initLocalData();
         saveToStorage();
       }
+    }, (error) => {
+      console.warn("Firebase Read Error (falling back to Local Storage):", error);
+      initLocalData();
     });
   }
 
@@ -1059,7 +1080,6 @@
     titleSpan.className = 'note-item-title';
     titleSpan.textContent = note.title.trim() || 'Untitled Note';
 
-    // Drag Handle '='
     const handleBtn = document.createElement('span');
     handleBtn.className = 'drag-handle';
     handleBtn.innerHTML = '&#61;';
@@ -1128,7 +1148,6 @@
     notes.push(newNote);
     activeNoteId = newNote.id;
 
-    // Append new note directly to trigger entrance animation
     const newEl = createNoteElement(newNote, animate);
     notesListEl.appendChild(newEl);
 
@@ -1184,14 +1203,20 @@
     localStorage.setItem('notepad_bg_brightness', bgBrightness);
 
     if (db) {
-      set(ref(db, 'notepad_data'), {
-        notes,
-        activeNoteId,
-        bgEnabled,
-        bgUrl,
-        bgBlur,
-        bgBrightness
-      });
+      try {
+        set(ref(db, 'notepad_data'), {
+          notes,
+          activeNoteId,
+          bgEnabled,
+          bgUrl,
+          bgBlur,
+          bgBrightness
+        }).catch(err => {
+          console.warn("Firebase save error (saved locally instead):", err);
+        });
+      } catch (err) {
+        console.warn("Firebase write exception:", err);
+      }
     }
   }
 
@@ -1220,7 +1245,6 @@
     let draggedItem = null;
     let touchTimer = null;
 
-    // Mouse Dragging via handle
     notesListEl.addEventListener('mousedown', (e) => {
       const handle = e.target.closest('.drag-handle');
       if (handle) {
@@ -1263,7 +1287,6 @@
       }
     });
 
-    // Touch / Mobile Press & Hold Dragging
     notesListEl.addEventListener('touchstart', (e) => {
       const handle = e.target.closest('.drag-handle');
       if (!handle) return;

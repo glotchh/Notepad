@@ -114,7 +114,7 @@
       display: none;
     }
 
-    /* Hanging Sidebar Styling */
+    /* Sidebar Styling */
     .sidebar {
       width: 260px;
       background-color: var(--sidebar-bg);
@@ -127,6 +127,29 @@
       border-right: 1px solid rgba(255, 255, 255, 0.05);
       position: relative;
       transition: transform 0.3s ease;
+    }
+
+    /* Sidebar Resize Handle */
+    .sidebar-resizer {
+      position: absolute;
+      top: 0;
+      right: -4px;
+      width: 8px;
+      height: 100%;
+      cursor: col-resize;
+      z-index: 101;
+      user-select: none;
+      touch-action: none;
+    }
+
+    .sidebar-resizer:hover,
+    .sidebar-resizer.resizing {
+      background: rgba(168, 199, 250, 0.3);
+    }
+
+    body.is-resizing {
+      cursor: col-resize !important;
+      user-select: none !important;
     }
 
     .sidebar-overlay {
@@ -188,7 +211,7 @@
       justify-content: space-between;
       padding: 12px 14px;
       border-radius: 12px;
-      cursor: grab;
+      cursor: pointer;
       color: var(--text-muted);
       font-size: 14px;
       transition: background 0.2s ease, color 0.15s ease, transform 0.25s ease, opacity 0.25s ease, max-height 0.25s ease, margin 0.25s ease, padding 0.25s ease;
@@ -210,10 +233,6 @@
       margin-bottom: 0;
       transform: scale(0.9);
       pointer-events: none;
-    }
-
-    .note-item:active {
-      cursor: grabbing;
     }
 
     .note-item.dragging {
@@ -238,6 +257,25 @@
       text-overflow: ellipsis;
       flex: 1;
       pointer-events: none;
+    }
+
+    .drag-handle {
+      cursor: grab;
+      color: var(--text-muted);
+      font-size: 16px;
+      padding: 4px 6px;
+      user-select: none;
+      opacity: 0.6;
+      transition: opacity 0.15s ease, color 0.15s ease;
+      touch-action: none;
+    }
+    
+    .drag-handle:hover {
+      opacity: 1;
+    }
+    
+    .drag-handle:active {
+      cursor: grabbing;
     }
 
     .delete-btn {
@@ -638,6 +676,7 @@
   <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
   <aside class="sidebar" id="sidebar">
+    <div class="sidebar-resizer" id="sidebarResizer"></div>
     <button class="new-note-btn" id="newNoteBtn">
       <span>+</span> New note
     </button>
@@ -692,503 +731,617 @@
     </div>
   </main>
 
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-    import { getDatabase, ref, set, onValue, get, child } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+  import { getDatabase, ref, set, onValue, get, child } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-    // --- YOUR FIREBASE CONFIGURATION ---
-    const firebaseConfig = {
-      apiKey: "AIzaSyAuOOkhkfMMjDY2Sb_3NnFKVgUZsSrDECg",
-      authDomain: "personal-notepad-7ca8f.firebaseapp.com",
-      databaseURL: "https://personal-notepad-7ca8f-default-rtdb.asia-southeast1.firebasedatabase.app",
-      projectId: "personal-notepad-7ca8f",
-      storageBucket: "personal-notepad-7ca8f.firebasestorage.app",
-      messagingSenderId: "174826675668",
-      appId: "1:174826675668:web:bc9dfa66843d097b0b8a41"
-    };
-    let db = null;
-    try {
-      if (firebaseConfig.apiKey !== "YOUR_API_KEY") {
-        const app = initializeApp(firebaseConfig);
-        db = getDatabase(app);
+  // --- YOUR FIREBASE CONFIGURATION ---
+  const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+    databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT_ID.appspot.com",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+
+  let db = null;
+  try {
+    if (firebaseConfig.apiKey !== "YOUR_API_KEY") {
+      const app = initializeApp(firebaseConfig);
+      db = getDatabase(app);
+    }
+  } catch (e) {
+    console.warn("Firebase not properly configured.", e);
+  }
+
+  const DEFAULT_BG_URL = 'https://motionbgs.com/media/4553/miku-nakano.960x540.mp4';
+
+  // App State
+  let notes = JSON.parse(localStorage.getItem('notepad_notes')) || [];
+  let activeNoteId = localStorage.getItem('notepad_active_id') || null;
+  let bgEnabled = JSON.parse(localStorage.getItem('notepad_bg_enabled') ?? 'true');
+  let bgUrl = localStorage.getItem('notepad_bg_url') || DEFAULT_BG_URL;
+  let bgBlur = localStorage.getItem('notepad_bg_blur') || '0';
+  let bgBrightness = localStorage.getItem('notepad_bg_brightness') || '100';
+  let saveTimeout = null;
+  let isRemoteUpdate = false;
+
+  // DOM Elements
+  const passwordModal = document.getElementById('passwordModal');
+  const passcodeInputs = document.getElementById('passcodeInput');
+  const submitPasscodeBtn = document.getElementById('submitPasscodeBtn');
+  const passcodeError = document.getElementById('passcodeError');
+
+  const notesListEl = document.getElementById('notesList');
+  const newNoteBtn = document.getElementById('newNoteBtn');
+  const noteTitleEl = document.getElementById('noteTitle');
+  const noteContentEl = document.getElementById('noteContent');
+  const saveStatusEl = document.getElementById('saveStatus');
+  const mainContent = document.getElementById('mainContent');
+  const bgVideo = document.getElementById('bgVideo');
+  const bgImage = document.getElementById('bgImage');
+  const bgToggle = document.getElementById('bgToggle');
+  const gearBtn = document.getElementById('gearBtn');
+  const popover = document.getElementById('popover');
+  const bgUrlInput = document.getElementById('bgUrlInput');
+  const blurSlider = document.getElementById('blurSlider');
+  const blurVal = document.getElementById('blurVal');
+  const brightnessSlider = document.getElementById('brightnessSlider');
+  const brightnessVal = document.getElementById('brightnessVal');
+  const saveBgBtn = document.getElementById('saveBgBtn');
+
+  const sidebar = document.getElementById('sidebar');
+  const menuToggleBtn = document.getElementById('menuToggleBtn');
+  const sidebarOverlay = document.getElementById('sidebarOverlay');
+
+  // SHA-256 Hashing helper
+  async function hashPassword(str) {
+    const utf8 = new TextEncoder().encode(str);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', utf8);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  // --- Authentication Flow ---
+  async function checkAuth() {
+    const isAuth = localStorage.getItem('notepad_authenticated');
+    if (isAuth === 'true') {
+      passwordModal.style.display = 'none';
+      bootApp();
+      return;
+    }
+
+    async function verify() {
+      const typed = passcodeInputs.value.trim();
+      if (!typed) return;
+      const hashed = await hashPassword(typed);
+
+      if (db) {
+        try {
+          const snapshot = await get(child(ref(db), 'app_config/passcode_hash'));
+          if (snapshot.exists() && snapshot.val() === hashed) {
+            localStorage.setItem('notepad_authenticated', 'true');
+            passwordModal.style.display = 'none';
+            bootApp();
+          } else {
+            passcodeError.style.display = 'block';
+            passcodeInputs.value = '';
+          }
+        } catch (err) {
+          console.error("Auth check failed:", err);
+          passcodeError.textContent = "Connection error";
+          passcodeError.style.display = 'block';
+        }
+      } else {
+        passcodeError.textContent = "Firebase config missing";
+        passcodeError.style.display = 'block';
       }
-    } catch (e) {
-      console.warn("Firebase not properly configured.", e);
     }
 
-    const DEFAULT_BG_URL = 'https://motionbgs.com/media/4553/miku-nakano.960x540.mp4';
+    submitPasscodeBtn.addEventListener('click', verify);
+    passcodeInputs.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') verify();
+    });
+  }
 
-    // App State
-    let notes = JSON.parse(localStorage.getItem('notepad_notes')) || [];
-    let activeNoteId = localStorage.getItem('notepad_active_id') || null;
-    let bgEnabled = JSON.parse(localStorage.getItem('notepad_bg_enabled') ?? 'true');
-    let bgUrl = localStorage.getItem('notepad_bg_url') || DEFAULT_BG_URL;
-    let bgBlur = localStorage.getItem('notepad_bg_blur') || '0';
-    let bgBrightness = localStorage.getItem('notepad_bg_brightness') || '100';
-    let saveTimeout = null;
-    let isRemoteUpdate = false;
+  function bootApp() {
+    setupMobileEvents();
+    setupDragAndDrop();
+    setupSidebarResize();
+    initBackgroundControls();
 
-    // DOM Elements
-    const passwordModal = document.getElementById('passwordModal');
-    const passcodeInputs = document.getElementById('passcodeInput');
-    const submitPasscodeBtn = document.getElementById('submitPasscodeBtn');
-    const passcodeError = document.getElementById('passcodeError');
+    if (db) {
+      setupCloudSync();
+    } else {
+      initLocalData();
+    }
+  }
 
-    const notesListEl = document.getElementById('notesList');
-    const newNoteBtn = document.getElementById('newNoteBtn');
-    const noteTitleEl = document.getElementById('noteTitle');
-    const noteContentEl = document.getElementById('noteContent');
-    const saveStatusEl = document.getElementById('saveStatus');
-    const mainContent = document.getElementById('mainContent');
-    const bgVideo = document.getElementById('bgVideo');
-    const bgImage = document.getElementById('bgImage');
-    const bgToggle = document.getElementById('bgToggle');
-    const gearBtn = document.getElementById('gearBtn');
-    const popover = document.getElementById('popover');
-    const bgUrlInput = document.getElementById('bgUrlInput');
-    const blurSlider = document.getElementById('blurSlider');
-    const blurVal = document.getElementById('blurVal');
-    const brightnessSlider = document.getElementById('brightnessSlider');
-    const brightnessVal = document.getElementById('brightnessVal');
-    const saveBgBtn = document.getElementById('saveBgBtn');
+  function initLocalData() {
+    if (notes.length === 0) {
+      createNewNote(false);
+    } else {
+      if (!activeNoteId || !notes.find(n => n.id === activeNoteId)) {
+        activeNoteId = notes[0].id;
+      }
+      renderSidebarFull();
+      loadActiveNote();
+    }
+  }
 
-    const sidebar = document.getElementById('sidebar');
-    const menuToggleBtn = document.getElementById('menuToggleBtn');
-    const sidebarOverlay = document.getElementById('sidebarOverlay');
+  function setupCloudSync() {
+    const dataRef = ref(db, 'notepad_data');
+    onValue(dataRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data && typeof data === 'object') {
+        isRemoteUpdate = true;
+        if (Array.isArray(data.notes)) notes = data.notes;
+        if (data.activeNoteId) activeNoteId = data.activeNoteId;
+        if (data.bgEnabled !== undefined) bgEnabled = data.bgEnabled;
+        if (data.bgUrl) bgUrl = data.bgUrl;
+        if (data.bgBlur) bgBlur = data.bgBlur;
+        if (data.bgBrightness) bgBrightness = data.bgBrightness;
 
-    // SHA-256 Hashing helper
-    async function hashPassword(str) {
-      const utf8 = new TextEncoder().encode(str);
-      const hashBuffer = await crypto.subtle.digest('SHA-256', utf8);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        renderSidebarFull();
+        loadActiveNote();
+        updateBackgroundUI();
+        applyBackground();
+        isRemoteUpdate = false;
+      } else {
+        initLocalData();
+        saveToStorage();
+      }
+    });
+  }
+
+  function updateBackgroundUI() {
+    bgToggle.checked = bgEnabled;
+    bgUrlInput.value = bgUrl;
+    blurSlider.value = bgBlur;
+    blurVal.textContent = `${bgBlur}px`;
+    
+    bgBrightness = Math.min(Number(bgBrightness), 100).toString();
+    brightnessSlider.value = bgBrightness;
+    brightnessVal.textContent = `${bgBrightness}%`;
+  }
+
+  function setupMobileEvents() {
+    menuToggleBtn.addEventListener('click', () => {
+      sidebar.classList.toggle('open');
+      sidebarOverlay.classList.toggle('active');
+    });
+
+    sidebarOverlay.addEventListener('click', closeMobileSidebar);
+  }
+
+  function closeMobileSidebar() {
+    sidebar.classList.remove('open');
+    sidebarOverlay.classList.remove('active');
+  }
+
+  function setupSidebarResize() {
+    const resizer = document.getElementById('sidebarResizer');
+    if (!resizer) return;
+    let isResizing = false;
+
+    const savedWidth = localStorage.getItem('notepad_sidebar_width');
+    if (savedWidth && window.innerWidth > 768) {
+      sidebar.style.width = `${savedWidth}px`;
     }
 
-    // --- Authentication Flow ---
-    async function checkAuth() {
-      const isAuth = localStorage.getItem('notepad_authenticated');
-      if (isAuth === 'true') {
-        passwordModal.style.display = 'none';
-        bootApp();
+    const startResize = () => {
+      if (window.innerWidth <= 768) return;
+      isResizing = true;
+      resizer.classList.add('resizing');
+      document.body.classList.add('is-resizing');
+    };
+
+    const handleResize = (clientX) => {
+      if (!isResizing) return;
+
+      const minWidth = 260;
+      const maxWidth = window.innerWidth / 2;
+      let newWidth = clientX;
+
+      if (newWidth < minWidth) newWidth = minWidth;
+      if (newWidth > maxWidth) newWidth = maxWidth;
+
+      sidebar.style.width = `${newWidth}px`;
+      localStorage.setItem('notepad_sidebar_width', newWidth);
+    };
+
+    const stopResize = () => {
+      if (isResizing) {
+        isResizing = false;
+        resizer.classList.remove('resizing');
+        document.body.classList.remove('is-resizing');
+      }
+    };
+
+    resizer.addEventListener('mousedown', startResize);
+    document.addEventListener('mousemove', (e) => handleResize(e.clientX));
+    document.addEventListener('mouseup', stopResize);
+
+    resizer.addEventListener('touchstart', (e) => startResize(e.touches[0]), { passive: true });
+    document.addEventListener('touchmove', (e) => {
+      if (isResizing) handleResize(e.touches[0].clientX);
+    });
+    document.addEventListener('touchend', stopResize);
+  }
+
+  function initBackgroundControls() {
+    updateBackgroundUI();
+    applyBackground();
+
+    bgToggle.addEventListener('change', (e) => {
+      bgEnabled = e.target.checked;
+      saveToStorage();
+      applyBackground();
+    });
+
+    gearBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      popover.classList.toggle('active');
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!popover.contains(e.target) && e.target !== gearBtn) {
+        popover.classList.remove('active');
+      }
+    });
+
+    blurSlider.addEventListener('input', (e) => {
+      bgBlur = e.target.value;
+      blurVal.textContent = `${bgBlur}px`;
+      applyFilterStyles();
+    });
+
+    blurSlider.addEventListener('change', () => saveToStorage());
+
+    brightnessSlider.addEventListener('input', (e) => {
+      bgBrightness = e.target.value;
+      brightnessVal.textContent = `${bgBrightness}%`;
+      applyFilterStyles();
+    });
+
+    brightnessSlider.addEventListener('change', () => saveToStorage());
+
+    saveBgBtn.addEventListener('click', () => {
+      const val = bgUrlInput.value.trim();
+      if (val) {
+        bgUrl = val;
+        saveToStorage();
+        applyBackground();
+        popover.classList.remove('active');
+      }
+    });
+  }
+
+  function isVideoUrl(url) {
+    return url.match(/\.(mp4|webm|ogg)$/i) || url.includes('.mp4');
+  }
+
+  function applyFilterStyles() {
+    const filterValue = `blur(${bgBlur}px) brightness(${bgBrightness}%)`;
+    bgVideo.style.filter = filterValue;
+    bgImage.style.filter = filterValue;
+  }
+
+  function applyBackground() {
+    applyFilterStyles();
+    if (bgEnabled) {
+      mainContent.classList.add('bg-active');
+      if (isVideoUrl(bgUrl)) {
+        bgImage.style.display = 'none';
+        bgVideo.style.display = 'block';
+        if (bgVideo.src !== bgUrl) {
+          bgVideo.src = bgUrl;
+          bgVideo.play().catch(() => {});
+        }
+      } else {
+        bgVideo.style.display = 'none';
+        bgImage.style.display = 'block';
+        bgImage.style.backgroundImage = `url('${bgUrl}')`;
+      }
+    } else {
+      mainContent.classList.remove('bg-active');
+    }
+  }
+
+  function createNoteElement(note, animate = false) {
+    const item = document.createElement('div');
+    item.className = `note-item ${note.id === activeNoteId ? 'active' : ''} ${animate ? 'newly-added' : ''}`;
+    item.dataset.id = note.id;
+
+    const titleSpan = document.createElement('span');
+    titleSpan.className = 'note-item-title';
+    titleSpan.textContent = note.title.trim() || 'Untitled Note';
+
+    // Drag Handle '='
+    const handleBtn = document.createElement('span');
+    handleBtn.className = 'drag-handle';
+    handleBtn.innerHTML = '&#61;';
+    handleBtn.title = 'Drag to reorder';
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'delete-btn';
+    delBtn.innerHTML = '&times;';
+    delBtn.title = 'Delete note';
+
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteNoteWithAnimation(item, note.id);
+    });
+
+    item.appendChild(titleSpan);
+    item.appendChild(handleBtn);
+    item.appendChild(delBtn);
+
+    item.addEventListener('click', () => {
+      if (activeNoteId !== note.id) {
+        switchActiveNote(note.id);
+      }
+      closeMobileSidebar();
+    });
+
+    if (animate) {
+      item.addEventListener('animationend', () => {
+        item.classList.remove('newly-added');
+      }, { once: true });
+    }
+
+    return item;
+  }
+
+  function renderSidebarFull() {
+    notesListEl.innerHTML = '';
+    notes.forEach(note => {
+      notesListEl.appendChild(createNoteElement(note, false));
+    });
+  }
+
+  function switchActiveNote(newId) {
+    activeNoteId = newId;
+
+    notesListEl.querySelectorAll('.note-item').forEach(el => {
+      if (el.dataset.id === activeNoteId) {
+        el.classList.add('active');
+      } else {
+        el.classList.remove('active');
+      }
+    });
+
+    loadActiveNote();
+    saveToStorage();
+  }
+
+  function createNewNote(animate = true) {
+    const newNote = {
+      id: Date.now().toString(),
+      title: '',
+      content: '',
+      updatedAt: Date.now()
+    };
+
+    notes.push(newNote);
+    activeNoteId = newNote.id;
+
+    // Append new note directly to trigger entrance animation
+    const newEl = createNoteElement(newNote, animate);
+    notesListEl.appendChild(newEl);
+
+    switchActiveNote(newNote.id);
+    noteTitleEl.focus();
+
+    if (animate) {
+      newEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+  }
+
+  function loadActiveNote() {
+    const note = notes.find(n => n.id === activeNoteId);
+    if (note) {
+      noteTitleEl.value = note.title;
+      noteContentEl.value = note.content;
+    }
+  }
+
+  function saveActiveNote() {
+    const note = notes.find(n => n.id === activeNoteId);
+    if (note) {
+      note.title = noteTitleEl.value;
+      note.content = noteContentEl.value;
+      note.updatedAt = Date.now();
+
+      saveToStorage();
+
+      const activeTitle = notesListEl.querySelector(`.note-item[data-id="${activeNoteId}"] .note-item-title`);
+      if (activeTitle) {
+        activeTitle.textContent = note.title.trim() || 'Untitled Note';
+      }
+
+      saveStatusEl.textContent = 'Saved';
+      saveStatusEl.style.opacity = '1';
+    }
+  }
+
+  function triggerAutoSave() {
+    if (isRemoteUpdate) return;
+    saveStatusEl.textContent = 'Saving...';
+    saveStatusEl.style.opacity = '1';
+    clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(saveActiveNote, 400);
+  }
+
+  function saveToStorage() {
+    localStorage.setItem('notepad_notes', JSON.stringify(notes));
+    localStorage.setItem('notepad_active_id', activeNoteId);
+    localStorage.setItem('notepad_bg_enabled', bgEnabled);
+    localStorage.setItem('notepad_bg_url', bgUrl);
+    localStorage.setItem('notepad_bg_blur', bgBlur);
+    localStorage.setItem('notepad_bg_brightness', bgBrightness);
+
+    if (db) {
+      set(ref(db, 'notepad_data'), {
+        notes,
+        activeNoteId,
+        bgEnabled,
+        bgUrl,
+        bgBlur,
+        bgBrightness
+      });
+    }
+  }
+
+  function deleteNoteWithAnimation(element, id) {
+    element.classList.add('deleting');
+    setTimeout(() => {
+      element.remove();
+      deleteNote(id);
+    }, 250);
+  }
+
+  function deleteNote(id) {
+    notes = notes.filter(n => n.id !== id);
+
+    if (notes.length === 0) {
+      createNewNote(true);
+    } else {
+      if (activeNoteId === id) {
+        switchActiveNote(notes[notes.length - 1].id);
+      }
+      saveToStorage();
+    }
+  }
+
+  function setupDragAndDrop() {
+    let draggedItem = null;
+    let touchTimer = null;
+
+    // Mouse Dragging via handle
+    notesListEl.addEventListener('mousedown', (e) => {
+      const handle = e.target.closest('.drag-handle');
+      if (handle) {
+        const item = handle.closest('.note-item');
+        if (item) {
+          item.setAttribute('draggable', 'true');
+        }
+      }
+    });
+
+    notesListEl.addEventListener('dragstart', (e) => {
+      const item = e.target.closest('.note-item');
+      if (item && item.getAttribute('draggable') === 'true') {
+        draggedItem = item;
+        item.classList.add('dragging');
+      } else {
+        e.preventDefault();
+      }
+    });
+
+    notesListEl.addEventListener('dragend', (e) => {
+      const item = e.target.closest('.note-item');
+      if (item) {
+        item.removeAttribute('draggable');
+        item.classList.remove('dragging');
+        draggedItem = null;
+        syncNotesOrderFromDOM();
+      }
+    });
+
+    notesListEl.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      const afterElement = getDragAfterElement(notesListEl, e.clientY);
+      if (draggedItem) {
+        if (afterElement == null) {
+          notesListEl.appendChild(draggedItem);
+        } else {
+          notesListEl.insertBefore(draggedItem, afterElement);
+        }
+      }
+    });
+
+    // Touch / Mobile Press & Hold Dragging
+    notesListEl.addEventListener('touchstart', (e) => {
+      const handle = e.target.closest('.drag-handle');
+      if (!handle) return;
+
+      const item = handle.closest('.note-item');
+      if (!item) return;
+
+      touchTimer = setTimeout(() => {
+        draggedItem = item;
+        item.classList.add('dragging');
+        if (navigator.vibrate) navigator.vibrate(40);
+      }, 300);
+    }, { passive: true });
+
+    notesListEl.addEventListener('touchmove', (e) => {
+      if (!draggedItem) {
+        clearTimeout(touchTimer);
         return;
       }
 
-      async function verify() {
-        const typed = passcodeInputs.value.trim();
-        if (!typed) return;
-        const hashed = await hashPassword(typed);
+      e.preventDefault();
+      const touchY = e.touches[0].clientY;
+      const afterElement = getDragAfterElement(notesListEl, touchY);
 
-        if (db) {
-          try {
-            const snapshot = await get(child(ref(db), 'app_config/passcode_hash'));
-            if (snapshot.exists() && snapshot.val() === hashed) {
-              localStorage.setItem('notepad_authenticated', 'true');
-              passwordModal.style.display = 'none';
-              bootApp();
-            } else {
-              passcodeError.style.display = 'block';
-              passcodeInputs.value = '';
-            }
-          } catch (err) {
-            console.error("Auth check failed:", err);
-            passcodeError.textContent = "Connection error";
-            passcodeError.style.display = 'block';
-          }
-        } else {
-          passcodeError.textContent = "Firebase config missing";
-          passcodeError.style.display = 'block';
-        }
-      }
-
-      submitPasscodeBtn.addEventListener('click', verify);
-      passcodeInputs.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') verify();
-      });
-    }
-
-    function bootApp() {
-      setupMobileEvents();
-      setupDragAndDrop();
-      initBackgroundControls();
-
-      if (db) {
-        setupCloudSync();
+      if (afterElement == null) {
+        notesListEl.appendChild(draggedItem);
       } else {
-        initLocalData();
+        notesListEl.insertBefore(draggedItem, afterElement);
       }
-    }
+    }, { passive: false });
 
-    function initLocalData() {
-      if (notes.length === 0) {
-        createNewNote(false);
+    const endTouch = () => {
+      clearTimeout(touchTimer);
+      if (draggedItem) {
+        draggedItem.classList.remove('dragging');
+        draggedItem = null;
+        syncNotesOrderFromDOM();
+      }
+    };
+
+    notesListEl.addEventListener('touchend', endTouch);
+    notesListEl.addEventListener('touchcancel', endTouch);
+  }
+
+  function getDragAfterElement(container, y) {
+    const draggableElements = [...container.querySelectorAll('.note-item:not(.dragging):not(.deleting)')];
+
+    return draggableElements.reduce((closest, child) => {
+      const box = child.getBoundingClientRect();
+      const offset = y - box.top - box.height / 2;
+      if (offset < 0 && offset > closest.offset) {
+        return { offset: offset, element: child };
       } else {
-        if (!activeNoteId || !notes.find(n => n.id === activeNoteId)) {
-          activeNoteId = notes[0].id;
-        }
-        renderSidebarFull();
-        loadActiveNote();
+        return closest;
       }
-    }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+  }
 
-    function setupCloudSync() {
-      const dataRef = ref(db, 'notepad_data');
-      onValue(dataRef, (snapshot) => {
-        const data = snapshot.val();
-        if (data && typeof data === 'object') {
-          isRemoteUpdate = true;
-          if (Array.isArray(data.notes)) notes = data.notes;
-          if (data.activeNoteId) activeNoteId = data.activeNoteId;
-          if (data.bgEnabled !== undefined) bgEnabled = data.bgEnabled;
-          if (data.bgUrl) bgUrl = data.bgUrl;
-          if (data.bgBlur) bgBlur = data.bgBlur;
-          if (data.bgBrightness) bgBrightness = data.bgBrightness;
+  function syncNotesOrderFromDOM() {
+    const domItems = [...notesListEl.querySelectorAll('.note-item')];
+    const reorderedNotes = [];
 
-          renderSidebarFull();
-          loadActiveNote();
-          updateBackgroundUI();
-          applyBackground();
-          isRemoteUpdate = false;
-        } else {
-          initLocalData();
-          saveToStorage();
-        }
-      });
-    }
+    domItems.forEach(item => {
+      const id = item.dataset.id;
+      const noteObj = notes.find(n => n.id === id);
+      if (noteObj) reorderedNotes.push(noteObj);
+    });
 
-    function updateBackgroundUI() {
-      bgToggle.checked = bgEnabled;
-      bgUrlInput.value = bgUrl;
-      blurSlider.value = bgBlur;
-      blurVal.textContent = `${bgBlur}px`;
-      
-      bgBrightness = Math.min(Number(bgBrightness), 100).toString();
-      brightnessSlider.value = bgBrightness;
-      brightnessVal.textContent = `${bgBrightness}%`;
-    }
+    notes = reorderedNotes;
+    saveToStorage();
+  }
 
-    function setupMobileEvents() {
-      menuToggleBtn.addEventListener('click', () => {
-        sidebar.classList.toggle('open');
-        sidebarOverlay.classList.toggle('active');
-      });
+  newNoteBtn.addEventListener('click', () => createNewNote(true));
+  noteTitleEl.addEventListener('input', triggerAutoSave);
+  noteContentEl.addEventListener('input', triggerAutoSave);
 
-      sidebarOverlay.addEventListener('click', closeMobileSidebar);
-    }
-
-    function closeMobileSidebar() {
-      sidebar.classList.remove('open');
-      sidebarOverlay.classList.remove('active');
-    }
-
-    function initBackgroundControls() {
-      updateBackgroundUI();
-      applyBackground();
-
-      bgToggle.addEventListener('change', (e) => {
-        bgEnabled = e.target.checked;
-        saveToStorage();
-        applyBackground();
-      });
-
-      gearBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        popover.classList.toggle('active');
-      });
-
-      document.addEventListener('click', (e) => {
-        if (!popover.contains(e.target) && e.target !== gearBtn) {
-          popover.classList.remove('active');
-        }
-      });
-
-      blurSlider.addEventListener('input', (e) => {
-        bgBlur = e.target.value;
-        blurVal.textContent = `${bgBlur}px`;
-        applyFilterStyles();
-      });
-
-      blurSlider.addEventListener('change', () => saveToStorage());
-
-      brightnessSlider.addEventListener('input', (e) => {
-        bgBrightness = e.target.value;
-        brightnessVal.textContent = `${bgBrightness}%`;
-        applyFilterStyles();
-      });
-
-      brightnessSlider.addEventListener('change', () => saveToStorage());
-
-      saveBgBtn.addEventListener('click', () => {
-        const val = bgUrlInput.value.trim();
-        if (val) {
-          bgUrl = val;
-          saveToStorage();
-          applyBackground();
-          popover.classList.remove('active');
-        }
-      });
-    }
-
-    function isVideoUrl(url) {
-      return url.match(/\.(mp4|webm|ogg)$/i) || url.includes('.mp4');
-    }
-
-    function applyFilterStyles() {
-      const filterValue = `blur(${bgBlur}px) brightness(${bgBrightness}%)`;
-      bgVideo.style.filter = filterValue;
-      bgImage.style.filter = filterValue;
-    }
-
-    function applyBackground() {
-      applyFilterStyles();
-      if (bgEnabled) {
-        mainContent.classList.add('bg-active');
-        if (isVideoUrl(bgUrl)) {
-          bgImage.style.display = 'none';
-          bgVideo.style.display = 'block';
-          if (bgVideo.src !== bgUrl) {
-            bgVideo.src = bgUrl;
-            bgVideo.play().catch(() => {});
-          }
-        } else {
-          bgVideo.style.display = 'none';
-          bgImage.style.display = 'block';
-          bgImage.style.backgroundImage = `url('${bgUrl}')`;
-        }
-      } else {
-        mainContent.classList.remove('bg-active');
-      }
-    }
-
-    function createNoteElement(note, animate = false) {
-      const item = document.createElement('div');
-      item.className = `note-item ${note.id === activeNoteId ? 'active' : ''} ${animate ? 'newly-added' : ''}`;
-      item.setAttribute('draggable', 'true');
-      item.dataset.id = note.id;
-
-      const titleSpan = document.createElement('span');
-      titleSpan.className = 'note-item-title';
-      titleSpan.textContent = note.title.trim() || 'Untitled Note';
-
-      const delBtn = document.createElement('button');
-      delBtn.className = 'delete-btn';
-      delBtn.innerHTML = '&times;';
-      delBtn.title = 'Delete note';
-
-      delBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        deleteNoteWithAnimation(item, note.id);
-      });
-
-      item.appendChild(titleSpan);
-      item.appendChild(delBtn);
-
-      item.addEventListener('click', () => {
-        if (activeNoteId !== note.id) {
-          switchActiveNote(note.id);
-        }
-        closeMobileSidebar();
-      });
-
-      if (animate) {
-        item.addEventListener('animationend', () => {
-          item.classList.remove('newly-added');
-        }, { once: true });
-      }
-
-      return item;
-    }
-
-    function renderSidebarFull() {
-      notesListEl.innerHTML = '';
-      notes.forEach(note => {
-        notesListEl.appendChild(createNoteElement(note, false));
-      });
-    }
-
-    function switchActiveNote(newId) {
-      activeNoteId = newId;
-      
-      // Highlight active item visually in the DOM
-      notesListEl.querySelectorAll('.note-item').forEach(el => {
-        if (el.dataset.id === activeNoteId) {
-          el.classList.add('active');
-        } else {
-          el.classList.remove('active');
-        }
-      });
-    
-      // Load content into editor first, then sync state
-      loadActiveNote();
-      saveToStorage();
-    }
-
-    function createNewNote(animate = true) {
-      const newNote = {
-        id: Date.now().toString(),
-        title: '',
-        content: '',
-        updatedAt: Date.now()
-      };
-      
-      notes.push(newNote);
-      activeNoteId = newNote.id;
-      
-      // Re-render full list to ensure clean DOM state without ghost duplicate elements
-      renderSidebarFull();
-      
-      // Switch to the newly created note and save state
-      switchActiveNote(newNote.id);
-      noteTitleEl.focus();
-    
-      if (animate) {
-        const activeEl = notesListEl.querySelector('.note-item.active');
-        if (activeEl) {
-          activeEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
-        }
-      }
-    }
-
-    function loadActiveNote() {
-      const note = notes.find(n => n.id === activeNoteId);
-      if (note) {
-        noteTitleEl.value = note.title;
-        noteContentEl.value = note.content;
-      }
-    }
-
-    function saveActiveNote() {
-      const note = notes.find(n => n.id === activeNoteId);
-      if (note) {
-        note.title = noteTitleEl.value;
-        note.content = noteContentEl.value;
-        note.updatedAt = Date.now();
-
-        saveToStorage();
-
-        const activeTitle = notesListEl.querySelector(`.note-item[data-id="${activeNoteId}"] .note-item-title`);
-        if (activeTitle) {
-          activeTitle.textContent = note.title.trim() || 'Untitled Note';
-        }
-
-        saveStatusEl.textContent = 'Saved';
-        saveStatusEl.style.opacity = '1';
-      }
-    }
-
-    function triggerAutoSave() {
-      if (isRemoteUpdate) return;
-      saveStatusEl.textContent = 'Saving...';
-      saveStatusEl.style.opacity = '1';
-      clearTimeout(saveTimeout);
-      saveTimeout = setTimeout(saveActiveNote, 400);
-    }
-
-    function saveToStorage() {
-      localStorage.setItem('notepad_notes', JSON.stringify(notes));
-      localStorage.setItem('notepad_active_id', activeNoteId);
-      localStorage.setItem('notepad_bg_enabled', bgEnabled);
-      localStorage.setItem('notepad_bg_url', bgUrl);
-      localStorage.setItem('notepad_bg_blur', bgBlur);
-      localStorage.setItem('notepad_bg_brightness', bgBrightness);
-
-      if (db) {
-        set(ref(db, 'notepad_data'), {
-          notes,
-          activeNoteId,
-          bgEnabled,
-          bgUrl,
-          bgBlur,
-          bgBrightness
-        });
-      }
-    }
-
-    function deleteNoteWithAnimation(element, id) {
-      element.classList.add('deleting');
-      setTimeout(() => {
-        element.remove();
-        deleteNote(id);
-      }, 250);
-    }
-
-    function deleteNote(id) {
-      notes = notes.filter(n => n.id !== id);
-
-      if (notes.length === 0) {
-        createNewNote(true);
-      } else {
-        if (activeNoteId === id) {
-          switchActiveNote(notes[notes.length - 1].id);
-        }
-        saveToStorage();
-      }
-    }
-
-    function setupDragAndDrop() {
-      let draggedItem = null;
-
-      notesListEl.addEventListener('dragstart', (e) => {
-        if (e.target.classList.contains('note-item')) {
-          draggedItem = e.target;
-          e.target.classList.add('dragging');
-        }
-      });
-
-      notesListEl.addEventListener('dragend', (e) => {
-        if (e.target.classList.contains('note-item')) {
-          e.target.classList.remove('dragging');
-          draggedItem = null;
-          syncNotesOrderFromDOM();
-        }
-      });
-
-      notesListEl.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        const afterElement = getDragAfterElement(notesListEl, e.clientY);
-        if (draggedItem) {
-          if (afterElement == null) {
-            notesListEl.appendChild(draggedItem);
-          } else {
-            notesListEl.insertBefore(draggedItem, afterElement);
-          }
-        }
-      });
-    }
-
-    function getDragAfterElement(container, y) {
-      const draggableElements = [...container.querySelectorAll('.note-item:not(.dragging):not(.deleting)')];
-
-      return draggableElements.reduce((closest, child) => {
-        const box = child.getBoundingClientRect();
-        const offset = y - box.top - box.height / 2;
-        if (offset < 0 && offset > closest.offset) {
-          return { offset: offset, element: child };
-        } else {
-          return closest;
-        }
-      }, { offset: Number.NEGATIVE_INFINITY }).element;
-    }
-
-    function syncNotesOrderFromDOM() {
-      const domItems = [...notesListEl.querySelectorAll('.note-item')];
-      const reorderedNotes = [];
-
-      domItems.forEach(item => {
-        const id = item.dataset.id;
-        const noteObj = notes.find(n => n.id === id);
-        if (noteObj) reorderedNotes.push(noteObj);
-      });
-
-      notes = reorderedNotes;
-      saveToStorage();
-    }
-
-    newNoteBtn.addEventListener('click', () => createNewNote(true));
-    noteTitleEl.addEventListener('input', triggerAutoSave);
-    noteContentEl.addEventListener('input', triggerAutoSave);
-
-    // Initialize application check
-    checkAuth();
-  </script>
+  // Initialize application check
+  checkAuth();
+</script>
 </body>
 </html>

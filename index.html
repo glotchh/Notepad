@@ -997,7 +997,7 @@
 
             // Iterate over profiles and check if typed hash matches their app_config hash
             for (const [profileId, profileData] of Object.entries(profilesData)) {
-              if (profileData.app_config && profileData.app_config.passcode_hash === hashed) {
+              if (profileData && profileData.passcode_hash === hashed) {
                 matchedProfile = profileId;
                 break;
               }
@@ -1765,3 +1765,4 @@
 </script>
 </body>
 </html>
+

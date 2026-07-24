@@ -885,6 +885,7 @@
   let saveTimeout = null;
   let isRemoteUpdate = false;
   let sidebarWidth = localStorage.getItem('notepad_sidebar_width') || '260';
+  let savedRange = null;
 
   // DOM Elements
   const passwordModal = document.getElementById('passwordModal');
@@ -1185,6 +1186,24 @@
     italicBtn.classList.toggle('active', document.queryCommandState('italic'));
     listBtn.classList.toggle('active', document.queryCommandState('insertUnorderedList'));
 
+    // Update Font Family dropdown to match cursor selection
+    const currentFont = document.queryCommandValue('fontName');
+    if (currentFont) {
+      const cleanFont = currentFont.replace(/['"]/g, '').toLowerCase();
+      const matchingOption = [...fontNameSelect.options].find(opt => {
+        const optVal = opt.value.replace(/['"]/g, '').toLowerCase();
+        return optVal.includes(cleanFont) || cleanFont.includes(optVal.split(',')[0].trim());
+      });
+      if (matchingOption) {
+        fontNameSelect.value = matchingOption.value;
+      }
+    }
+
+    const currentSize = document.queryCommandValue('fontSize');
+    if (currentSize) {
+      fontSizeSelect.value = currentSize;
+    }
+
     // Check code block state
     const selection = window.getSelection();
     if (selection.rangeCount > 0) {
@@ -1210,8 +1229,23 @@
       });
     });
 
+    // Save current selection before dropdown focus changes cursor state
+    [fontNameSelect, fontSizeSelect].forEach(select => {
+      select.addEventListener('mousedown', () => {
+        const selection = window.getSelection();
+        if (selection.rangeCount > 0) {
+          savedRange = selection.getRangeAt(0);
+        }
+      });
+    });
+
     // Font Name Selection
     fontNameSelect.addEventListener('change', (e) => {
+      if (savedRange) {
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(savedRange);
+      }
       document.execCommand('fontName', false, e.target.value);
       noteContentEl.focus();
       triggerAutoSave();
@@ -1219,6 +1253,11 @@
 
     // Font Size Selection
     fontSizeSelect.addEventListener('change', (e) => {
+      if (savedRange) {
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(savedRange);
+      }
       document.execCommand('fontSize', false, e.target.value);
       noteContentEl.focus();
       triggerAutoSave();

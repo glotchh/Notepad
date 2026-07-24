@@ -896,6 +896,8 @@
       <div class="toolbar" id="toolbar">
         <button type="button" class="format-btn" id="boldBtn" data-command="bold" title="Bold (Ctrl+B)"><b>B</b></button>
         <button type="button" class="format-btn" id="italicBtn" data-command="italic" title="Italic (Ctrl+I)"><i>I</i></button>
+        <button type="button" class="format-btn" id="underlineBtn" data-command="underline" title="Underline (Ctrl+U)"><u>U</u></button>
+        <button type="button" class="format-btn" id="strikethroughBtn" data-command="strikethrough" title="Strikethrough"><s>S</s></button>
         <button type="button" class="format-btn" id="listBtn" data-command="insertUnorderedList" title="Bullet List">• List</button>
         <button type="button" class="format-btn" id="codeBlockBtn" title="Code Block">&lt;/&gt;</button>
         
@@ -1344,6 +1346,8 @@
 
     boldBtn.classList.toggle('active', document.queryCommandState('bold'));
     italicBtn.classList.toggle('active', document.queryCommandState('italic'));
+    underlineBtn.classList.toggle('active', document.queryCommandState('underline'));
+    strikethroughBtn.classList.toggle('active', document.queryCommandState('strikethrough'));
     listBtn.classList.toggle('active', document.queryCommandState('insertUnorderedList'));
 
     const currentFont = document.queryCommandValue('fontName');

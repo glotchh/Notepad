@@ -516,6 +516,84 @@
       white-space: pre-wrap;
     }
 
+    /* Image Wrapper & Resizer Styles */
+    .resizable-image-wrapper {
+      position: relative;
+      display: inline-block;
+      margin: 8px 0;
+      max-width: 100%;
+      cursor: default;
+    }
+
+    .resizable-image-wrapper img {
+      display: block;
+      max-width: 100%;
+      border-radius: 8px;
+      user-select: none;
+    }
+
+    .resizable-image-wrapper.selected {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    /* Resize Handle */
+    .resize-handle {
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      background: var(--accent);
+      border: 2px solid #131314;
+      border-radius: 50%;
+      bottom: 4px;
+      right: 4px;
+      cursor: nwse-resize;
+      display: none;
+      z-index: 5;
+    }
+
+    .resizable-image-wrapper.selected .resize-handle {
+      display: block;
+    }
+
+    /* Floating Image Toolbar */
+    .image-floating-toolbar {
+      position: absolute;
+      display: none;
+      background: rgba(30, 31, 32, 0.9);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 4px;
+      gap: 4px;
+      z-index: 10;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+
+    .image-floating-toolbar.active {
+      display: flex;
+    }
+
+    .img-tb-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-main);
+      padding: 4px 8px;
+      font-size: 12px;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    .img-tb-btn:hover {
+      background: var(--sidebar-hover);
+      color: var(--accent);
+    }
+
+    .img-tb-btn.delete:hover {
+      color: #ff6b6b;
+    }
+
     .editor-textarea:empty:before {
       content: attr(data-placeholder);
       color: var(--text-muted);
@@ -840,6 +918,14 @@
       <div id="noteContent" class="editor-textarea" contenteditable="true" data-placeholder="Start typing..."></div>
     </div>
 
+    <!-- Floating Image Toolbar -->
+    <div class="image-floating-toolbar" id="imgFloatingToolbar">
+      <button class="img-tb-btn" id="imgSizeSmall">Small</button>
+      <button class="img-tb-btn" id="imgSizeMed">Medium</button>
+      <button class="img-tb-btn" id="imgSizeLarge">Full</button>
+      <button class="img-tb-btn delete" id="imgDeleteBtn">Delete</button>
+    </div>
+
     <div class="controls-container">
       <label class="switch">
         <input type="checkbox" id="bgToggle">
@@ -901,7 +987,6 @@
 
   const DEFAULT_BG_URL = 'https://motionbgs.com/media/4553/miku-nakano.960x540.mp4';
 
-  // App State - Reinitialized dynamically per profile 
   let activeProfile = null;
   let notes = [];
   let activeNoteId = null;
@@ -944,7 +1029,6 @@
   const menuToggleBtn = document.getElementById('menuToggleBtn');
   const sidebarOverlay = document.getElementById('sidebarOverlay');
 
-  // Formatting Elements
   const boldBtn = document.getElementById('boldBtn');
   const italicBtn = document.getElementById('italicBtn');
   const listBtn = document.getElementById('listBtn');
@@ -952,7 +1036,13 @@
   const fontNameSelect = document.getElementById('fontNameSelect');
   const fontSizeSelect = document.getElementById('fontSizeSelect');
 
-  // SHA-256 Hashing helper
+  const imgFloatingToolbar = document.getElementById('imgFloatingToolbar');
+  const imgSizeSmall = document.getElementById('imgSizeSmall');
+  const imgSizeMed = document.getElementById('imgSizeMed');
+  const imgSizeLarge = document.getElementById('imgSizeLarge');
+  const imgDeleteBtn = document.getElementById('imgDeleteBtn');
+  let selectedImageWrapper = null;
+
   async function hashPassword(str) {
     const utf8 = new TextEncoder().encode(str);
     const hashBuffer = await crypto.subtle.digest('SHA-256', utf8);
@@ -960,7 +1050,6 @@
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
-  // State loader scoping data to active profile
   function loadLocalStateForProfile(profile) {
     notes = JSON.parse(localStorage.getItem(`notepad_${profile}_notes`)) || [];
     activeNoteId = localStorage.getItem(`notepad_${profile}_active_id`) || null;
@@ -971,7 +1060,6 @@
     sidebarWidth = localStorage.getItem(`notepad_${profile}_sidebar_width`) || '260';
   }
 
-  // --- Authentication Flow ---
   async function checkAuth() {
     const isAuth = localStorage.getItem('notepad_authenticated');
     activeProfile = localStorage.getItem('notepad_active_profile');
@@ -995,7 +1083,6 @@
             const profilesData = snapshot.val();
             let matchedProfile = null;
 
-            // Iterate over profiles and check if typed hash matches their app_config hash
             for (const [profileId, profileData] of Object.entries(profilesData)) {
               if (profileData && profileData.passcode_hash === hashed) {
                 matchedProfile = profileId;
@@ -1013,7 +1100,6 @@
         }
       }
 
-      // Local fallback unlock against locally cached profile hashes
       const localHashes = JSON.parse(localStorage.getItem('notepad_local_hashes') || '{}');
       let matchedLocal = null;
       for (const [profileId, hash] of Object.entries(localHashes)) {
@@ -1035,7 +1121,6 @@
       localStorage.setItem('notepad_authenticated', 'true');
       localStorage.setItem('notepad_active_profile', profileId);
 
-      // Cache the hash locally for offline support
       const localHashes = JSON.parse(localStorage.getItem('notepad_local_hashes') || '{}');
       localHashes[profileId] = hashedPW;
       localStorage.setItem('notepad_local_hashes', JSON.stringify(localHashes));
@@ -1057,7 +1142,6 @@
     });
   }
 
-  // --- Logout functionality ---
   if (logoutBtn) {
     logoutBtn.addEventListener('click', () => {
       localStorage.removeItem('notepad_authenticated');
@@ -1072,6 +1156,7 @@
     setupSidebarResize();
     initBackgroundControls();
     initRichTextToolbar();
+    initImageInteractions();
 
     if (db) {
       setupCloudSync();
@@ -1095,7 +1180,6 @@
   function setupCloudSync() {
     if (!activeProfile) return;
     
-    // Sync to active profile's database path
     const dataRef = ref(db, `profiles/${activeProfile}/notepad_data`);
     onValue(dataRef, (snapshot) => {
       if (saveTimeout || document.querySelector('.note-item.newly-added')) return;
@@ -1110,7 +1194,6 @@
         if (data.bgBlur) bgBlur = data.bgBlur;
         if (data.bgBrightness) bgBrightness = data.bgBrightness;
         
-        // Update sidebar width state and UI
         if (data.sidebarWidth) {
           sidebarWidth = data.sidebarWidth;
           if (window.innerWidth > 768) {
@@ -1163,7 +1246,6 @@
     if (!resizer) return;
     let isResizing = false;
 
-    // Apply saved width on startup if on desktop
     if (sidebarWidth && window.innerWidth > 768) {
       sidebar.style.width = `${sidebarWidth}px`;
     }
@@ -1186,7 +1268,7 @@
       if (newWidth > maxWidth) newWidth = maxWidth;
 
       sidebar.style.width = `${newWidth}px`;
-      sidebarWidth = newWidth.toString(); // Update state
+      sidebarWidth = newWidth.toString();
     };
 
     const stopResize = () => {
@@ -1194,7 +1276,7 @@
         isResizing = false;
         resizer.classList.remove('resizing');
         document.body.classList.remove('is-resizing');
-        saveToStorage(); // Save to Firebase & LocalStorage when resize finishes
+        saveToStorage();
       }
     };
 
@@ -1257,16 +1339,13 @@
     });
   }
 
-  // --- RICH TEXT & TOOLBAR FUNCTIONS ---
   function updateToolbarUI() {
     if (document.activeElement !== noteContentEl) return;
 
-    // Check formatting commands active state
     boldBtn.classList.toggle('active', document.queryCommandState('bold'));
     italicBtn.classList.toggle('active', document.queryCommandState('italic'));
     listBtn.classList.toggle('active', document.queryCommandState('insertUnorderedList'));
 
-    // Update Font Family dropdown to match cursor selection
     const currentFont = document.queryCommandValue('fontName');
     if (currentFont) {
       const cleanFont = currentFont.replace(/['"]/g, '').toLowerCase();
@@ -1284,7 +1363,6 @@
       fontSizeSelect.value = currentSize;
     }
 
-    // Check code block state
     const selection = window.getSelection();
     if (selection.rangeCount > 0) {
       let anchorNode = selection.anchorNode;
@@ -1297,7 +1375,6 @@
   }
 
   function initRichTextToolbar() {
-    // Toolbar Command Buttons (Bold, Italic, List)
     document.querySelectorAll('.format-btn[data-command]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.preventDefault();
@@ -1309,7 +1386,6 @@
       });
     });
 
-    // Save current selection before dropdown focus changes cursor state
     [fontNameSelect, fontSizeSelect].forEach(select => {
       select.addEventListener('mousedown', () => {
         const selection = window.getSelection();
@@ -1319,7 +1395,6 @@
       });
     });
 
-    // Font Name Selection
     fontNameSelect.addEventListener('change', (e) => {
       if (savedRange) {
         const selection = window.getSelection();
@@ -1331,7 +1406,6 @@
       triggerAutoSave();
     });
 
-    // Font Size Selection
     fontSizeSelect.addEventListener('change', (e) => {
       if (savedRange) {
         const selection = window.getSelection();
@@ -1343,7 +1417,6 @@
       triggerAutoSave();
     });
 
-    // Code Block Toggle & Creation Handler
     codeBlockBtn.addEventListener('click', (e) => {
       e.preventDefault();
       const selection = window.getSelection();
@@ -1355,22 +1428,19 @@
       const existingPre = node.closest('pre');
 
       if (existingPre) {
-        // Exit Code Block: Replace <pre> with standard text
         const div = document.createElement('div');
         div.innerHTML = existingPre.innerHTML || '<br>';
         existingPre.parentNode.replaceChild(div, existingPre);
       } else {
-        // Create Code Block: Prevent nesting and insert <pre>
         const range = selection.getRangeAt(0);
         const selectedText = range.toString();
 
         const pre = document.createElement('pre');
-        pre.textContent = selectedText || '\u200B'; // Use zero-width space if empty
+        pre.textContent = selectedText || '\u200B';
 
         range.deleteContents();
         range.insertNode(pre);
 
-        // Move cursor inside code block
         range.selectNodeContents(pre);
         range.collapse(false);
         selection.removeAllRanges();
@@ -1382,12 +1452,10 @@
       triggerAutoSave();
     });
 
-    // Handle keyup / selection change to highlight active buttons (including Ctrl+B, Ctrl+I)
     ['keyup', 'mouseup', 'selectionchange'].forEach(evt => {
       document.addEventListener(evt, updateToolbarUI);
     });
 
-    // Handle code block behavior (Press Enter twice to escape code block)
     noteContentEl.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         const selection = window.getSelection();
@@ -1399,13 +1467,10 @@
         const pre = node.closest('pre');
         if (pre) {
           const text = pre.innerText || '';
-          // If double-enter at end of code block
           if (text.endsWith('\n')) {
             e.preventDefault();
-            // Trim trailing newline created by enter key
             pre.innerText = text.slice(0, -1);
 
-            // Create new paragraph below code block
             const p = document.createElement('div');
             p.innerHTML = '<br>';
             if (pre.nextSibling) {
@@ -1414,7 +1479,6 @@
               pre.parentNode.appendChild(p);
             }
 
-            // Move selection/focus to new block
             const range = document.createRange();
             range.setStart(p, 0);
             range.collapse(true);
@@ -1426,6 +1490,159 @@
         }
       }
     });
+  }
+
+  // --- IMAGE PASTE, RESIZE, DELETE & UNDO HANDLER ---
+  noteContentEl.addEventListener('paste', (e) => {
+    const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+    
+    for (let index in items) {
+      const item = items[index];
+      
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        e.preventDefault();
+        
+        const blob = item.getAsFile();
+        const reader = new FileReader();
+        
+        reader.onload = function(event) {
+          const base64String = event.target.result;
+          
+          // Wrap image inside a resizable structure for sizing and deletion toolbars
+          const wrapper = document.createElement('span');
+          wrapper.className = 'resizable-image-wrapper';
+          wrapper.contentEditable = 'false';
+
+          const img = document.createElement('img');
+          img.src = base64String;
+          img.style.width = '100%'; // Default full width container fit
+
+          const handle = document.createElement('div');
+          handle.className = 'resize-handle';
+
+          wrapper.appendChild(img);
+          wrapper.appendChild(handle);
+          
+          const selection = window.getSelection();
+          if (!selection.rangeCount) return;
+          
+          const range = selection.getRangeAt(0);
+          range.deleteContents();
+          range.insertNode(wrapper);
+          
+          // Add a trailing space text node for cursor typing continuation after image
+          const space = document.createTextNode('\u00A0');
+          wrapper.parentNode.insertBefore(space, wrapper.nextSibling);
+
+          range.setStartAfter(space);
+          range.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          
+          triggerAutoSave();
+        };
+        
+        reader.readAsDataURL(blob);
+        break;
+      }
+    }
+  });
+
+  function initImageInteractions() {
+    // Click selection handling for images
+    noteContentEl.addEventListener('click', (e) => {
+      const wrapper = e.target.closest('.resizable-image-wrapper');
+      if (wrapper) {
+        selectImageWrapper(wrapper);
+      } else {
+        deselectImageWrapper();
+      }
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!imgFloatingToolbar.contains(e.target) && !e.target.closest('.resizable-image-wrapper')) {
+        deselectImageWrapper();
+      }
+    });
+
+    // Toolbar sizing/deletion configuration
+    imgSizeSmall.addEventListener('click', () => resizeSelectedImage('200px'));
+    imgSizeMed.addEventListener('click', () => resizeSelectedImage('450px'));
+    imgSizeLarge.addEventListener('click', () => resizeSelectedImage('100%'));
+    imgDeleteBtn.addEventListener('click', () => {
+      if (selectedImageWrapper) {
+        selectedImageWrapper.remove();
+        deselectImageWrapper();
+        triggerAutoSave();
+      }
+    });
+
+    // Handle corner drag-to-resize functionality
+    let isResizingImg = false;
+    let startX = 0;
+    let startWidth = 0;
+
+    document.addEventListener('mousedown', (e) => {
+      if (e.target.classList.contains('resize-handle')) {
+        isResizingImg = true;
+        selectedImageWrapper = e.target.closest('.resizable-image-wrapper');
+        const img = selectedImageWrapper.querySelector('img');
+        startX = e.clientX;
+        startWidth = img.offsetWidth;
+        e.preventDefault();
+      }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isResizingImg || !selectedImageWrapper) return;
+      const img = selectedImageWrapper.querySelector('img');
+      const diffX = e.clientX - startX;
+      let newWidth = startWidth + diffX;
+      
+      const maxWidth = noteContentEl.clientWidth;
+      if (newWidth < 100) newWidth = 100;
+      if (newWidth > maxWidth) newWidth = maxWidth;
+
+      img.style.width = `${newWidth}px`;
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (isResizingImg) {
+        isResizingImg = false;
+        triggerAutoSave();
+      }
+    });
+  }
+
+  function selectImageWrapper(wrapper) {
+    deselectImageWrapper();
+    selectedImageWrapper = wrapper;
+    selectedImageWrapper.classList.add('selected');
+    
+    // Position floating toolbar above the selected image wrapper
+    const rect = selectedImageWrapper.getBoundingClientRect();
+    const mainRect = mainContent.getBoundingClientRect();
+
+    imgFloatingToolbar.style.top = `${rect.top - mainRect.top - 45}px`;
+    imgFloatingToolbar.style.left = `${rect.left - mainRect.left + (rect.width / 2) - 100}px`;
+    imgFloatingToolbar.classList.add('active');
+  }
+
+  function deselectImageWrapper() {
+    if (selectedImageWrapper) {
+      selectedImageWrapper.classList.remove('selected');
+      selectedImageWrapper = null;
+    }
+    imgFloatingToolbar.classList.remove('active');
+  }
+
+  function resizeSelectedImage(widthVal) {
+    if (selectedImageWrapper) {
+      const img = selectedImageWrapper.querySelector('img');
+      img.style.width = widthVal;
+      selectImageWrapper(selectedImageWrapper); // Refresh toolbar positioning
+      triggerAutoSave();
+    }
   }
 
   function isVideoUrl(url) {
@@ -1556,6 +1773,7 @@
     if (note) {
       noteTitleEl.value = note.title;
       noteContentEl.innerHTML = note.content || '';
+      deselectImageWrapper();
     }
   }
 
@@ -1589,7 +1807,6 @@
   function saveToStorage() {
     if (!activeProfile) return;
 
-    // Scope storage keys uniquely to the active profile
     localStorage.setItem(`notepad_${activeProfile}_notes`, JSON.stringify(notes));
     localStorage.setItem(`notepad_${activeProfile}_active_id`, activeNoteId);
     localStorage.setItem(`notepad_${activeProfile}_bg_enabled`, bgEnabled);
@@ -1765,4 +1982,3 @@
 </script>
 </body>
 </html>
-

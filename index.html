@@ -299,6 +299,29 @@
       color: #ff6b6b;
     }
 
+    /* Logout Button */
+    .logout-btn {
+      margin-top: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background-color: transparent;
+      color: #ff6b6b;
+      border: 1px solid rgba(255, 107, 107, 0.3);
+      padding: 10px 18px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .logout-btn:hover {
+      background-color: rgba(255, 107, 107, 0.1);
+      border-color: #ff6b6b;
+    }
+
     @keyframes popIn {
       0% {
         opacity: 0;
@@ -490,7 +513,7 @@
       font-family: inherit;
       text-shadow: 0 1px 2px rgba(0,0,0,0.4);
       overflow-y: auto;
-      white-space: pre-wrap; /* Preserve line breaks and multiple spaces */
+      white-space: pre-wrap;
     }
 
     .editor-textarea:empty:before {
@@ -773,6 +796,9 @@
       <span>+</span> New note
     </button>
     <div class="notes-list" id="notesList"></div>
+    <button class="logout-btn" id="logoutBtn">
+      ⏏ Logout
+    </button>
   </aside>
 
   <main class="main-content" id="mainContent">
@@ -875,16 +901,18 @@
 
   const DEFAULT_BG_URL = 'https://motionbgs.com/media/4553/miku-nakano.960x540.mp4';
 
-  // App State
-  let notes = JSON.parse(localStorage.getItem('notepad_notes')) || [];
-  let activeNoteId = localStorage.getItem('notepad_active_id') || null;
-  let bgEnabled = JSON.parse(localStorage.getItem('notepad_bg_enabled') ?? 'true');
-  let bgUrl = localStorage.getItem('notepad_bg_url') || DEFAULT_BG_URL;
-  let bgBlur = localStorage.getItem('notepad_bg_blur') || '0';
-  let bgBrightness = localStorage.getItem('notepad_bg_brightness') || '100';
+  // App State - Reinitialized dynamically per profile 
+  let activeProfile = null;
+  let notes = [];
+  let activeNoteId = null;
+  let bgEnabled = true;
+  let bgUrl = DEFAULT_BG_URL;
+  let bgBlur = '0';
+  let bgBrightness = '100';
+  let sidebarWidth = '260';
+  
   let saveTimeout = null;
   let isRemoteUpdate = false;
-  let sidebarWidth = localStorage.getItem('notepad_sidebar_width') || '260';
   let savedRange = null;
 
   // DOM Elements
@@ -892,6 +920,7 @@
   const passcodeInputs = document.getElementById('passcodeInput');
   const submitPasscodeBtn = document.getElementById('submitPasscodeBtn');
   const passcodeError = document.getElementById('passcodeError');
+  const logoutBtn = document.getElementById('logoutBtn');
 
   const notesListEl = document.getElementById('notesList');
   const newNoteBtn = document.getElementById('newNoteBtn');
@@ -931,11 +960,25 @@
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
+  // State loader scoping data to active profile
+  function loadLocalStateForProfile(profile) {
+    notes = JSON.parse(localStorage.getItem(`notepad_${profile}_notes`)) || [];
+    activeNoteId = localStorage.getItem(`notepad_${profile}_active_id`) || null;
+    bgEnabled = JSON.parse(localStorage.getItem(`notepad_${profile}_bg_enabled`) ?? 'true');
+    bgUrl = localStorage.getItem(`notepad_${profile}_bg_url`) || DEFAULT_BG_URL;
+    bgBlur = localStorage.getItem(`notepad_${profile}_bg_blur`) || '0';
+    bgBrightness = localStorage.getItem(`notepad_${profile}_bg_brightness`) || '100';
+    sidebarWidth = localStorage.getItem(`notepad_${profile}_sidebar_width`) || '260';
+  }
+
   // --- Authentication Flow ---
   async function checkAuth() {
     const isAuth = localStorage.getItem('notepad_authenticated');
-    if (isAuth === 'true') {
+    activeProfile = localStorage.getItem('notepad_active_profile');
+    
+    if (isAuth === 'true' && activeProfile) {
       passwordModal.style.display = 'none';
+      loadLocalStateForProfile(activeProfile);
       bootApp();
       return;
     }
@@ -947,33 +990,58 @@
 
       if (db) {
         try {
-          const snapshot = await get(child(ref(db), 'app_config/passcode_hash'));
-          if (snapshot.exists() && snapshot.val() === hashed) {
-            unlockApp();
-            return;
+          const snapshot = await get(child(ref(db), 'profiles'));
+          if (snapshot.exists()) {
+            const profilesData = snapshot.val();
+            let matchedProfile = null;
+
+            // Iterate over profiles and check if typed hash matches their app_config hash
+            for (const [profileId, profileData] of Object.entries(profilesData)) {
+              if (profileData.app_config && profileData.app_config.passcode_hash === hashed) {
+                matchedProfile = profileId;
+                break;
+              }
+            }
+
+            if (matchedProfile) {
+              unlockApp(matchedProfile, hashed);
+              return;
+            }
           }
         } catch (err) {
           console.warn("Firebase Auth check failed, attempting local authentication check...", err);
         }
       }
 
-      // Local fallback unlock
-      const storedLocalHash = localStorage.getItem('notepad_local_passcode_hash');
-      if (storedLocalHash) {
-        if (storedLocalHash === hashed) {
-          unlockApp();
-        } else {
-          showAuthError("Incorrect passcode");
+      // Local fallback unlock against locally cached profile hashes
+      const localHashes = JSON.parse(localStorage.getItem('notepad_local_hashes') || '{}');
+      let matchedLocal = null;
+      for (const [profileId, hash] of Object.entries(localHashes)) {
+        if (hash === hashed) {
+          matchedLocal = profileId;
+          break;
         }
+      }
+
+      if (matchedLocal) {
+        unlockApp(matchedLocal, hashed);
       } else {
-        localStorage.setItem('notepad_local_passcode_hash', hashed);
-        unlockApp();
+        showAuthError("Incorrect passcode");
       }
     }
 
-    function unlockApp() {
+    function unlockApp(profileId, hashedPW) {
+      activeProfile = profileId;
       localStorage.setItem('notepad_authenticated', 'true');
+      localStorage.setItem('notepad_active_profile', profileId);
+
+      // Cache the hash locally for offline support
+      const localHashes = JSON.parse(localStorage.getItem('notepad_local_hashes') || '{}');
+      localHashes[profileId] = hashedPW;
+      localStorage.setItem('notepad_local_hashes', JSON.stringify(localHashes));
+
       passwordModal.style.display = 'none';
+      loadLocalStateForProfile(profileId);
       bootApp();
     }
 
@@ -986,6 +1054,15 @@
     submitPasscodeBtn.addEventListener('click', verify);
     passcodeInputs.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') verify();
+    });
+  }
+
+  // --- Logout functionality ---
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => {
+      localStorage.removeItem('notepad_authenticated');
+      localStorage.removeItem('notepad_active_profile');
+      window.location.reload(); 
     });
   }
 
@@ -1016,7 +1093,10 @@
   }
 
   function setupCloudSync() {
-    const dataRef = ref(db, 'notepad_data');
+    if (!activeProfile) return;
+    
+    // Sync to active profile's database path
+    const dataRef = ref(db, `profiles/${activeProfile}/notepad_data`);
     onValue(dataRef, (snapshot) => {
       if (saveTimeout || document.querySelector('.note-item.newly-added')) return;
 
@@ -1507,24 +1587,27 @@
   }
 
   function saveToStorage() {
-    localStorage.setItem('notepad_notes', JSON.stringify(notes));
-    localStorage.setItem('notepad_active_id', activeNoteId);
-    localStorage.setItem('notepad_bg_enabled', bgEnabled);
-    localStorage.setItem('notepad_bg_url', bgUrl);
-    localStorage.setItem('notepad_bg_blur', bgBlur);
-    localStorage.setItem('notepad_bg_brightness', bgBrightness);
-    localStorage.setItem('notepad_sidebar_width', sidebarWidth); // Save to LocalStorage
+    if (!activeProfile) return;
+
+    // Scope storage keys uniquely to the active profile
+    localStorage.setItem(`notepad_${activeProfile}_notes`, JSON.stringify(notes));
+    localStorage.setItem(`notepad_${activeProfile}_active_id`, activeNoteId);
+    localStorage.setItem(`notepad_${activeProfile}_bg_enabled`, bgEnabled);
+    localStorage.setItem(`notepad_${activeProfile}_bg_url`, bgUrl);
+    localStorage.setItem(`notepad_${activeProfile}_bg_blur`, bgBlur);
+    localStorage.setItem(`notepad_${activeProfile}_bg_brightness`, bgBrightness);
+    localStorage.setItem(`notepad_${activeProfile}_sidebar_width`, sidebarWidth); 
 
     if (db) {
       try {
-        set(ref(db, 'notepad_data'), {
+        set(ref(db, `profiles/${activeProfile}/notepad_data`), {
           notes,
           activeNoteId,
           bgEnabled,
           bgUrl,
           bgBlur,
           bgBrightness,
-          sidebarWidth // Save to Firebase
+          sidebarWidth 
         }).catch(err => {
           console.warn("Firebase save error (saved locally instead):", err);
         });

@@ -129,7 +129,6 @@
       transition: transform 0.3s ease;
     }
 
-    /* Sidebar Resize Handle */
     .sidebar-resizer {
       position: absolute;
       top: 0;
@@ -299,7 +298,6 @@
       color: #ff6b6b;
     }
 
-    /* Logout Button */
     .logout-btn {
       margin-top: auto;
       display: flex;
@@ -335,7 +333,6 @@
       }
     }
 
-    /* Main Editor Area */
     .main-content {
       flex: 1;
       position: relative;
@@ -360,7 +357,6 @@
       backdrop-filter: blur(8px);
     }
 
-    /* Wallpaper Layers */
     .bg-overlay {
       position: absolute;
       top: 0;
@@ -434,7 +430,6 @@
       margin-left: 12px;
     }
 
-    /* Rich Text Layout & Formatting */
     .editor-container {
       flex: 1;
       display: flex;
@@ -516,7 +511,6 @@
       white-space: pre-wrap;
     }
 
-    /* Image Wrapper & Resizer Styles */
     .resizable-image-wrapper {
       position: relative;
       display: inline-block;
@@ -537,7 +531,6 @@
       outline-offset: 2px;
     }
 
-    /* Resize Handle */
     .resize-handle {
       position: absolute;
       width: 12px;
@@ -556,7 +549,6 @@
       display: block;
     }
 
-    /* Floating Image Toolbar */
     .image-floating-toolbar {
       position: absolute;
       display: none;
@@ -617,7 +609,6 @@
       white-space: pre-wrap;
     }
 
-    /* Controls Bar */
     .controls-container {
       position: absolute;
       bottom: 20px;
@@ -901,7 +892,6 @@
         <button type="button" class="format-btn" id="listBtn" data-command="insertUnorderedList" title="Bullet List">• List</button>
         <button type="button" class="format-btn" id="codeBlockBtn" title="Code Block">&lt;/&gt;</button>
         
-        <!-- Font Selection -->
         <select class="format-select" id="fontNameSelect" title="Font Family">
           <option value="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">Sans-Serif</option>
           <option value="'Courier New', Courier, monospace">Monospace</option>
@@ -909,7 +899,6 @@
           <option value="'Comic Sans MS', cursive, sans-serif">Comic Sans</option>
         </select>
 
-        <!-- Font Size Selection -->
         <select class="format-select" id="fontSizeSelect" title="Font Size">
           <option value="2">Small</option>
           <option value="3" selected>Normal</option>
@@ -920,7 +909,6 @@
       <div id="noteContent" class="editor-textarea" contenteditable="true" data-placeholder="Start typing..."></div>
     </div>
 
-    <!-- Floating Image Toolbar -->
     <div class="image-floating-toolbar" id="imgFloatingToolbar">
       <button class="img-tb-btn" id="imgSizeSmall">Small</button>
       <button class="img-tb-btn" id="imgSizeMed">Medium</button>
@@ -966,7 +954,10 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
   import { getDatabase, ref, set, onValue, get, child } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-  // --- YOUR FIREBASE CONFIGURATION ---
+  const SUPABASE_URL = 'https://pvolwnupmolfqtmtbrpt.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_j_24A59kZteGhGuZwC89TA_k36banYp';
+  const SUPABASE_BUCKET = 'notepad-images';
+
   const firebaseConfig = {
     apiKey: "AIzaSyAuOOkhkfMMjDY2Sb_3NnFKVgUZsSrDECg",
     authDomain: "personal-notepad-7ca8f.firebaseapp.com",
@@ -1002,7 +993,6 @@
   let isRemoteUpdate = false;
   let savedRange = null;
 
-  // DOM Elements
   const passwordModal = document.getElementById('passwordModal');
   const passcodeInputs = document.getElementById('passcodeInput');
   const submitPasscodeBtn = document.getElementById('submitPasscodeBtn');
@@ -1052,6 +1042,37 @@
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
+  async function deleteSupabaseImage(imageUrl) {
+    if (!imageUrl || !imageUrl.includes(SUPABASE_BUCKET)) return;
+    try {
+      const marker = `/public/${SUPABASE_BUCKET}/`;
+      const parts = imageUrl.split(marker);
+      if (parts.length < 2) return;
+      const filePath = parts[1];
+
+      await fetch(`${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/${filePath}`, {
+        method: 'DELETE',
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+        }
+      });
+    } catch (err) {
+      console.warn("Failed to delete image from Supabase storage:", err);
+    }
+  }
+
+  function extractImagesFromHtml(html) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const imgs = doc.querySelectorAll('img');
+    const urls = [];
+    imgs.forEach(img => {
+      if (img.src) urls.push(img.src);
+    });
+    return urls;
+  }
+
   function loadLocalStateForProfile(profile) {
     notes = JSON.parse(localStorage.getItem(`notepad_${profile}_notes`)) || [];
     activeNoteId = localStorage.getItem(`notepad_${profile}_active_id`) || null;
@@ -1098,11 +1119,17 @@
             }
           }
         } catch (err) {
-          console.warn("Firebase Auth check failed, attempting local authentication check...", err);
+          console.warn("Firebase Auth check failed, checking local storage...", err);
         }
       }
 
       const localHashes = JSON.parse(localStorage.getItem('notepad_local_hashes') || '{}');
+      
+      if (Object.keys(localHashes).length === 0) {
+        unlockApp("default_profile", hashed);
+        return;
+      }
+
       let matchedLocal = null;
       for (const [profileId, hash] of Object.entries(localHashes)) {
         if (hash === hashed) {
@@ -1138,10 +1165,14 @@
       passcodeInputs.value = '';
     }
 
-    submitPasscodeBtn.addEventListener('click', verify);
-    passcodeInputs.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') verify();
-    });
+    submitPasscodeBtn.onclick = verify;
+    passcodeInputs.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        verify();
+      }
+    };
+    
+    setTimeout(() => passcodeInputs.focus(), 100);
   }
 
   if (logoutBtn) {
@@ -1213,7 +1244,7 @@
         saveToStorage();
       }
     }, (error) => {
-      console.warn("Firebase Read Error (falling back to Local Storage):", error);
+      console.warn("Firebase Read Error:", error);
       initLocalData();
     });
   }
@@ -1261,11 +1292,9 @@
 
     const handleResize = (clientX) => {
       if (!isResizing) return;
-
       const minWidth = 260;
       const maxWidth = window.innerWidth / 2;
       let newWidth = clientX;
-
       if (newWidth < minWidth) newWidth = minWidth;
       if (newWidth > maxWidth) newWidth = maxWidth;
 
@@ -1319,7 +1348,6 @@
       blurVal.textContent = `${bgBlur}px`;
       applyFilterStyles();
     });
-
     blurSlider.addEventListener('change', () => saveToStorage());
 
     brightnessSlider.addEventListener('input', (e) => {
@@ -1327,7 +1355,6 @@
       brightnessVal.textContent = `${bgBrightness}%`;
       applyFilterStyles();
     });
-
     brightnessSlider.addEventListener('change', () => saveToStorage());
 
     saveBgBtn.addEventListener('click', () => {
@@ -1357,22 +1384,16 @@
         const optVal = opt.value.replace(/['"]/g, '').toLowerCase();
         return optVal.includes(cleanFont) || cleanFont.includes(optVal.split(',')[0].trim());
       });
-      if (matchingOption) {
-        fontNameSelect.value = matchingOption.value;
-      }
+      if (matchingOption) fontNameSelect.value = matchingOption.value;
     }
 
     const currentSize = document.queryCommandValue('fontSize');
-    if (currentSize) {
-      fontSizeSelect.value = currentSize;
-    }
+    if (currentSize) fontSizeSelect.value = currentSize;
 
     const selection = window.getSelection();
     if (selection.rangeCount > 0) {
       let anchorNode = selection.anchorNode;
-      if (anchorNode && anchorNode.nodeType === Node.TEXT_NODE) {
-        anchorNode = anchorNode.parentNode;
-      }
+      if (anchorNode && anchorNode.nodeType === Node.TEXT_NODE) anchorNode = anchorNode.parentNode;
       const isInsideCode = anchorNode && anchorNode.closest('pre');
       codeBlockBtn.classList.toggle('active', !!isInsideCode);
     }
@@ -1382,8 +1403,7 @@
     document.querySelectorAll('.format-btn[data-command]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.preventDefault();
-        const command = btn.dataset.command;
-        document.execCommand(command, false, null);
+        document.execCommand(btn.dataset.command, false, null);
         noteContentEl.focus();
         updateToolbarUI();
         triggerAutoSave();
@@ -1393,9 +1413,7 @@
     [fontNameSelect, fontSizeSelect].forEach(select => {
       select.addEventListener('mousedown', () => {
         const selection = window.getSelection();
-        if (selection.rangeCount > 0) {
-          savedRange = selection.getRangeAt(0);
-        }
+        if (selection.rangeCount > 0) savedRange = selection.getRangeAt(0);
       });
     });
 
@@ -1496,8 +1514,7 @@
     });
   }
 
-  // --- IMAGE PASTE, RESIZE, DELETE & UNDO HANDLER ---
-  noteContentEl.addEventListener('paste', (e) => {
+  noteContentEl.addEventListener('paste', async (e) => {
     const items = (e.clipboardData || e.originalEvent.clipboardData).items;
     
     for (let index in items) {
@@ -1505,21 +1522,41 @@
       
       if (item.kind === 'file' && item.type.startsWith('image/')) {
         e.preventDefault();
-        
-        const blob = item.getAsFile();
-        const reader = new FileReader();
-        
-        reader.onload = function(event) {
-          const base64String = event.target.result;
-          
-          // Wrap image inside a resizable structure for sizing and deletion toolbars
+        const file = item.getAsFile();
+        if (!file) return;
+
+        saveStatusEl.textContent = 'Uploading image...';
+        saveStatusEl.style.opacity = '1';
+
+        try {
+          const fileExt = file.name ? file.name.split('.').pop() : 'png';
+          const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+          const filePath = `${fileName}`;
+
+          const uploadResponse = await fetch(`${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/${filePath}`, {
+            method: 'POST',
+            headers: {
+              'apikey': SUPABASE_ANON_KEY,
+              'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+              'Content-Type': file.type
+            },
+            body: file
+          });
+
+          if (!uploadResponse.ok) {
+            const errText = await uploadResponse.text();
+            throw new Error(`Upload failed: ${errText}`);
+          }
+
+          const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/${filePath}`;
+
           const wrapper = document.createElement('span');
           wrapper.className = 'resizable-image-wrapper';
           wrapper.contentEditable = 'false';
 
           const img = document.createElement('img');
-          img.src = base64String;
-          img.style.width = '100%'; // Default full width container fit
+          img.src = publicUrl;
+          img.style.width = '100%';
 
           const handle = document.createElement('div');
           handle.className = 'resize-handle';
@@ -1534,7 +1571,6 @@
           range.deleteContents();
           range.insertNode(wrapper);
           
-          // Add a trailing space text node for cursor typing continuation after image
           const space = document.createTextNode('\u00A0');
           wrapper.parentNode.insertBefore(space, wrapper.nextSibling);
 
@@ -1544,16 +1580,18 @@
           selection.addRange(range);
           
           triggerAutoSave();
-        };
-        
-        reader.readAsDataURL(blob);
+          saveStatusEl.textContent = 'Saved';
+        } catch (err) {
+          console.error("Supabase Image Upload Error:", err);
+          alert("Failed to upload image to Supabase storage. Check bucket permissions.");
+          saveStatusEl.textContent = 'Upload failed';
+        }
         break;
       }
     }
   });
 
   function initImageInteractions() {
-    // Click selection handling for images
     noteContentEl.addEventListener('click', (e) => {
       const wrapper = e.target.closest('.resizable-image-wrapper');
       if (wrapper) {
@@ -1569,19 +1607,21 @@
       }
     });
 
-    // Toolbar sizing/deletion configuration
     imgSizeSmall.addEventListener('click', () => resizeSelectedImage('200px'));
     imgSizeMed.addEventListener('click', () => resizeSelectedImage('450px'));
     imgSizeLarge.addEventListener('click', () => resizeSelectedImage('100%'));
     imgDeleteBtn.addEventListener('click', () => {
       if (selectedImageWrapper) {
+        const img = selectedImageWrapper.querySelector('img');
+        if (img && img.src) {
+          deleteSupabaseImage(img.src);
+        }
         selectedImageWrapper.remove();
         deselectImageWrapper();
         triggerAutoSave();
       }
     });
 
-    // Handle corner drag-to-resize functionality
     let isResizingImg = false;
     let startX = 0;
     let startWidth = 0;
@@ -1602,11 +1642,9 @@
       const img = selectedImageWrapper.querySelector('img');
       const diffX = e.clientX - startX;
       let newWidth = startWidth + diffX;
-      
       const maxWidth = noteContentEl.clientWidth;
       if (newWidth < 100) newWidth = 100;
       if (newWidth > maxWidth) newWidth = maxWidth;
-
       img.style.width = `${newWidth}px`;
     });
 
@@ -1623,7 +1661,6 @@
     selectedImageWrapper = wrapper;
     selectedImageWrapper.classList.add('selected');
     
-    // Position floating toolbar above the selected image wrapper
     const rect = selectedImageWrapper.getBoundingClientRect();
     const mainRect = mainContent.getBoundingClientRect();
 
@@ -1644,7 +1681,7 @@
     if (selectedImageWrapper) {
       const img = selectedImageWrapper.querySelector('img');
       img.style.width = widthVal;
-      selectImageWrapper(selectedImageWrapper); // Refresh toolbar positioning
+      selectImageWrapper(selectedImageWrapper);
       triggerAutoSave();
     }
   }
@@ -1776,7 +1813,20 @@
     const note = notes.find(n => n.id === activeNoteId);
     if (note) {
       noteTitleEl.value = note.title;
-      noteContentEl.innerHTML = note.content || '';
+      
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(note.content || '', 'text/html');
+      
+      doc.querySelectorAll('.resizable-image-wrapper').forEach(wrapper => {
+        wrapper.contentEditable = 'false';
+        if (!wrapper.querySelector('.resize-handle')) {
+          const handle = document.createElement('div');
+          handle.className = 'resize-handle';
+          wrapper.appendChild(handle);
+        }
+      });
+
+      noteContentEl.innerHTML = doc.body.innerHTML;
       deselectImageWrapper();
     }
   }
@@ -1784,6 +1834,15 @@
   function saveActiveNote() {
     const note = notes.find(n => n.id === activeNoteId);
     if (note) {
+      const oldImages = extractImagesFromHtml(note.content);
+      const newImages = extractImagesFromHtml(noteContentEl.innerHTML);
+
+      oldImages.forEach(imgUrl => {
+        if (!newImages.includes(imgUrl)) {
+          deleteSupabaseImage(imgUrl);
+        }
+      });
+
       note.title = noteTitleEl.value;
       note.content = noteContentEl.innerHTML;
       note.updatedAt = Date.now();
@@ -1830,7 +1889,7 @@
           bgBrightness,
           sidebarWidth 
         }).catch(err => {
-          console.warn("Firebase save error (saved locally instead):", err);
+          console.warn("Firebase save error:", err);
         });
       } catch (err) {
         console.warn("Firebase write exception:", err);
@@ -1847,6 +1906,12 @@
   }
 
   function deleteNote(id) {
+    const noteToDelete = notes.find(n => n.id === id);
+    if (noteToDelete) {
+      const imgs = extractImagesFromHtml(noteToDelete.content);
+      imgs.forEach(imgUrl => deleteSupabaseImage(imgUrl));
+    }
+
     notes = notes.filter(n => n.id !== id);
 
     if (notes.length === 0) {
@@ -1867,9 +1932,7 @@
       const handle = e.target.closest('.drag-handle');
       if (handle) {
         const item = handle.closest('.note-item');
-        if (item) {
-          item.setAttribute('draggable', 'true');
-        }
+        if (item) item.setAttribute('draggable', 'true');
       }
     });
 
@@ -1908,7 +1971,6 @@
     notesListEl.addEventListener('touchstart', (e) => {
       const handle = e.target.closest('.drag-handle');
       if (!handle) return;
-
       const item = handle.closest('.note-item');
       if (!item) return;
 
@@ -1924,7 +1986,6 @@
         clearTimeout(touchTimer);
         return;
       }
-
       e.preventDefault();
       const touchY = e.touches[0].clientY;
       const afterElement = getDragAfterElement(notesListEl, touchY);
@@ -1966,13 +2027,11 @@
   function syncNotesOrderFromDOM() {
     const domItems = [...notesListEl.querySelectorAll('.note-item')];
     const reorderedNotes = [];
-
     domItems.forEach(item => {
       const id = item.dataset.id;
       const noteObj = notes.find(n => n.id === id);
       if (noteObj) reorderedNotes.push(noteObj);
     });
-
     notes = reorderedNotes;
     saveToStorage();
   }
@@ -1981,7 +2040,6 @@
   noteTitleEl.addEventListener('input', triggerAutoSave);
   noteContentEl.addEventListener('input', triggerAutoSave);
 
-  // Initialize application check
   checkAuth();
 </script>
 </body>

@@ -374,7 +374,7 @@
       opacity: 1;
     }
 
-    .editor-header, .editor-textarea {
+    .editor-header, .editor-container {
       position: relative;
       z-index: 3;
     }
@@ -383,7 +383,6 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 16px;
     }
 
     .editor-header-left {
@@ -412,6 +411,74 @@
       margin-left: 12px;
     }
 
+    /* Rich Text Layout & Formatting */
+    .editor-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      margin-top: 12px;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      padding-top: 16px;
+      padding-bottom: 12px;
+    }
+
+    .format-btn {
+      background: rgba(30, 31, 32, 0.65);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 6px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+    }
+
+    .format-btn:hover {
+      background: var(--sidebar-hover);
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .format-btn.active {
+      background: var(--accent);
+      color: #131314;
+      border-color: var(--accent);
+      font-weight: 600;
+      box-shadow: 0 0 8px rgba(168, 199, 250, 0.4);
+    }
+
+    .format-select {
+      background: rgba(30, 31, 32, 0.65);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-size: 13px;
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+
+    .format-select:focus {
+      border-color: var(--accent);
+    }
+
+    .format-select option {
+      background: var(--sidebar-bg);
+      color: var(--text-main);
+    }
+
     .editor-textarea {
       flex: 1;
       background: transparent;
@@ -420,9 +487,33 @@
       color: var(--text-main);
       font-size: 16px;
       line-height: 1.6;
-      resize: none;
       font-family: inherit;
       text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+      overflow-y: auto;
+      white-space: pre-wrap; /* Preserve line breaks and multiple spaces */
+    }
+
+    .editor-textarea:empty:before {
+      content: attr(data-placeholder);
+      color: var(--text-muted);
+      cursor: text;
+    }
+
+    .editor-textarea ul, .editor-textarea ol {
+      padding-left: 24px;
+      margin: 8px 0;
+    }
+
+    .editor-textarea pre {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 12px;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 14px;
+      overflow-x: auto;
+      margin: 8px 0;
+      white-space: pre-wrap;
     }
 
     /* Controls Bar */
@@ -696,7 +787,32 @@
       </div>
       <span id="saveStatus" class="save-status">Saved</span>
     </div>
-    <textarea id="noteContent" class="editor-textarea" placeholder="Start typing..."></textarea>
+
+    <div class="editor-container">
+      <div class="toolbar" id="toolbar">
+        <button type="button" class="format-btn" id="boldBtn" data-command="bold" title="Bold (Ctrl+B)"><b>B</b></button>
+        <button type="button" class="format-btn" id="italicBtn" data-command="italic" title="Italic (Ctrl+I)"><i>I</i></button>
+        <button type="button" class="format-btn" id="listBtn" data-command="insertUnorderedList" title="Bullet List">• List</button>
+        <button type="button" class="format-btn" id="codeBlockBtn" title="Code Block">&lt;/&gt;</button>
+        
+        <!-- Font Selection -->
+        <select class="format-select" id="fontNameSelect" title="Font Family">
+          <option value="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">Sans-Serif</option>
+          <option value="'Courier New', Courier, monospace">Monospace</option>
+          <option value="Georgia, serif">Serif</option>
+          <option value="'Comic Sans MS', cursive, sans-serif">Comic Sans</option>
+        </select>
+
+        <!-- Font Size Selection -->
+        <select class="format-select" id="fontSizeSelect" title="Font Size">
+          <option value="2">Small</option>
+          <option value="3" selected>Normal</option>
+          <option value="5">Large</option>
+          <option value="6">Huge</option>
+        </select>
+      </div>
+      <div id="noteContent" class="editor-textarea" contenteditable="true" data-placeholder="Start typing..."></div>
+    </div>
 
     <div class="controls-container">
       <label class="switch">
@@ -768,6 +884,7 @@
   let bgBrightness = localStorage.getItem('notepad_bg_brightness') || '100';
   let saveTimeout = null;
   let isRemoteUpdate = false;
+  let sidebarWidth = localStorage.getItem('notepad_sidebar_width') || '260';
 
   // DOM Elements
   const passwordModal = document.getElementById('passwordModal');
@@ -796,6 +913,14 @@
   const sidebar = document.getElementById('sidebar');
   const menuToggleBtn = document.getElementById('menuToggleBtn');
   const sidebarOverlay = document.getElementById('sidebarOverlay');
+
+  // Formatting Elements
+  const boldBtn = document.getElementById('boldBtn');
+  const italicBtn = document.getElementById('italicBtn');
+  const listBtn = document.getElementById('listBtn');
+  const codeBlockBtn = document.getElementById('codeBlockBtn');
+  const fontNameSelect = document.getElementById('fontNameSelect');
+  const fontSizeSelect = document.getElementById('fontSizeSelect');
 
   // SHA-256 Hashing helper
   async function hashPassword(str) {
@@ -831,7 +956,7 @@
         }
       }
 
-      // Local fallback unlock if database isn't configured or reachable
+      // Local fallback unlock
       const storedLocalHash = localStorage.getItem('notepad_local_passcode_hash');
       if (storedLocalHash) {
         if (storedLocalHash === hashed) {
@@ -840,7 +965,6 @@
           showAuthError("Incorrect passcode");
         }
       } else {
-        // First login fallback
         localStorage.setItem('notepad_local_passcode_hash', hashed);
         unlockApp();
       }
@@ -869,6 +993,7 @@
     setupDragAndDrop();
     setupSidebarResize();
     initBackgroundControls();
+    initRichTextToolbar();
 
     if (db) {
       setupCloudSync();
@@ -892,7 +1017,6 @@
   function setupCloudSync() {
     const dataRef = ref(db, 'notepad_data');
     onValue(dataRef, (snapshot) => {
-      // Don't re-render from Firebase if we just triggered a local action
       if (saveTimeout || document.querySelector('.note-item.newly-added')) return;
 
       const data = snapshot.val();
@@ -904,6 +1028,14 @@
         if (data.bgUrl) bgUrl = data.bgUrl;
         if (data.bgBlur) bgBlur = data.bgBlur;
         if (data.bgBrightness) bgBrightness = data.bgBrightness;
+        
+        // Update sidebar width state and UI
+        if (data.sidebarWidth) {
+          sidebarWidth = data.sidebarWidth;
+          if (window.innerWidth > 768) {
+            sidebar.style.width = `${sidebarWidth}px`;
+          }
+        }
 
         renderSidebarFull();
         loadActiveNote();
@@ -950,9 +1082,9 @@
     if (!resizer) return;
     let isResizing = false;
 
-    const savedWidth = localStorage.getItem('notepad_sidebar_width');
-    if (savedWidth && window.innerWidth > 768) {
-      sidebar.style.width = `${savedWidth}px`;
+    // Apply saved width on startup if on desktop
+    if (sidebarWidth && window.innerWidth > 768) {
+      sidebar.style.width = `${sidebarWidth}px`;
     }
 
     const startResize = () => {
@@ -973,7 +1105,7 @@
       if (newWidth > maxWidth) newWidth = maxWidth;
 
       sidebar.style.width = `${newWidth}px`;
-      localStorage.setItem('notepad_sidebar_width', newWidth);
+      sidebarWidth = newWidth.toString(); // Update state
     };
 
     const stopResize = () => {
@@ -981,6 +1113,7 @@
         isResizing = false;
         resizer.classList.remove('resizing');
         document.body.classList.remove('is-resizing');
+        saveToStorage(); // Save to Firebase & LocalStorage when resize finishes
       }
     };
 
@@ -1039,6 +1172,139 @@
         saveToStorage();
         applyBackground();
         popover.classList.remove('active');
+      }
+    });
+  }
+
+  // --- RICH TEXT & TOOLBAR FUNCTIONS ---
+  function updateToolbarUI() {
+    if (document.activeElement !== noteContentEl) return;
+
+    // Check formatting commands active state
+    boldBtn.classList.toggle('active', document.queryCommandState('bold'));
+    italicBtn.classList.toggle('active', document.queryCommandState('italic'));
+    listBtn.classList.toggle('active', document.queryCommandState('insertUnorderedList'));
+
+    // Check code block state
+    const selection = window.getSelection();
+    if (selection.rangeCount > 0) {
+      let anchorNode = selection.anchorNode;
+      if (anchorNode && anchorNode.nodeType === Node.TEXT_NODE) {
+        anchorNode = anchorNode.parentNode;
+      }
+      const isInsideCode = anchorNode && anchorNode.closest('pre');
+      codeBlockBtn.classList.toggle('active', !!isInsideCode);
+    }
+  }
+
+  function initRichTextToolbar() {
+    // Toolbar Command Buttons (Bold, Italic, List)
+    document.querySelectorAll('.format-btn[data-command]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const command = btn.dataset.command;
+        document.execCommand(command, false, null);
+        noteContentEl.focus();
+        updateToolbarUI();
+        triggerAutoSave();
+      });
+    });
+
+    // Font Name Selection
+    fontNameSelect.addEventListener('change', (e) => {
+      document.execCommand('fontName', false, e.target.value);
+      noteContentEl.focus();
+      triggerAutoSave();
+    });
+
+    // Font Size Selection
+    fontSizeSelect.addEventListener('change', (e) => {
+      document.execCommand('fontSize', false, e.target.value);
+      noteContentEl.focus();
+      triggerAutoSave();
+    });
+
+    // Code Block Toggle & Creation Handler
+    codeBlockBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const selection = window.getSelection();
+      if (!selection.rangeCount) return;
+
+      let node = selection.anchorNode;
+      if (node.nodeType === Node.TEXT_NODE) node = node.parentNode;
+      
+      const existingPre = node.closest('pre');
+
+      if (existingPre) {
+        // Exit Code Block: Replace <pre> with standard text
+        const div = document.createElement('div');
+        div.innerHTML = existingPre.innerHTML || '<br>';
+        existingPre.parentNode.replaceChild(div, existingPre);
+      } else {
+        // Create Code Block: Prevent nesting and insert <pre>
+        const range = selection.getRangeAt(0);
+        const selectedText = range.toString();
+
+        const pre = document.createElement('pre');
+        pre.textContent = selectedText || '\u200B'; // Use zero-width space if empty
+
+        range.deleteContents();
+        range.insertNode(pre);
+
+        // Move cursor inside code block
+        range.selectNodeContents(pre);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+
+      noteContentEl.focus();
+      updateToolbarUI();
+      triggerAutoSave();
+    });
+
+    // Handle keyup / selection change to highlight active buttons (including Ctrl+B, Ctrl+I)
+    ['keyup', 'mouseup', 'selectionchange'].forEach(evt => {
+      document.addEventListener(evt, updateToolbarUI);
+    });
+
+    // Handle code block behavior (Press Enter twice to escape code block)
+    noteContentEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const selection = window.getSelection();
+        if (!selection.rangeCount) return;
+
+        let node = selection.anchorNode;
+        if (node.nodeType === Node.TEXT_NODE) node = node.parentNode;
+
+        const pre = node.closest('pre');
+        if (pre) {
+          const text = pre.innerText || '';
+          // If double-enter at end of code block
+          if (text.endsWith('\n')) {
+            e.preventDefault();
+            // Trim trailing newline created by enter key
+            pre.innerText = text.slice(0, -1);
+
+            // Create new paragraph below code block
+            const p = document.createElement('div');
+            p.innerHTML = '<br>';
+            if (pre.nextSibling) {
+              pre.parentNode.insertBefore(p, pre.nextSibling);
+            } else {
+              pre.parentNode.appendChild(p);
+            }
+
+            // Move selection/focus to new block
+            const range = document.createRange();
+            range.setStart(p, 0);
+            range.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(range);
+            
+            triggerAutoSave();
+          }
+        }
       }
     });
   }
@@ -1142,36 +1408,35 @@
   }
 
   function createNewNote(animate = true) {
-      const newNote = {
-        id: Date.now().toString(),
-        title: '',
-        content: '',
-        updatedAt: Date.now()
-      };
-  
-      notes.push(newNote);
-      activeNoteId = newNote.id;
-  
-      // Render sidebar and animate the newly created active note
-      renderSidebarFull(animate ? newNote.id : null);
-      loadActiveNote();
-      saveToStorage();
-  
-      noteTitleEl.focus();
-  
-      if (animate) {
-        requestAnimationFrame(() => {
-          const activeEl = notesListEl.querySelector('.note-item.active');
-          if (activeEl) activeEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
-        });
-      }
+    const newNote = {
+      id: Date.now().toString(),
+      title: '',
+      content: '',
+      updatedAt: Date.now()
+    };
+
+    notes.push(newNote);
+    activeNoteId = newNote.id;
+
+    renderSidebarFull(animate ? newNote.id : null);
+    loadActiveNote();
+    saveToStorage();
+
+    noteTitleEl.focus();
+
+    if (animate) {
+      requestAnimationFrame(() => {
+        const activeEl = notesListEl.querySelector('.note-item.active');
+        if (activeEl) activeEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      });
     }
+  }
 
   function loadActiveNote() {
     const note = notes.find(n => n.id === activeNoteId);
     if (note) {
       noteTitleEl.value = note.title;
-      noteContentEl.value = note.content;
+      noteContentEl.innerHTML = note.content || '';
     }
   }
 
@@ -1179,7 +1444,7 @@
     const note = notes.find(n => n.id === activeNoteId);
     if (note) {
       note.title = noteTitleEl.value;
-      note.content = noteContentEl.value;
+      note.content = noteContentEl.innerHTML;
       note.updatedAt = Date.now();
 
       saveToStorage();
@@ -1209,6 +1474,7 @@
     localStorage.setItem('notepad_bg_url', bgUrl);
     localStorage.setItem('notepad_bg_blur', bgBlur);
     localStorage.setItem('notepad_bg_brightness', bgBrightness);
+    localStorage.setItem('notepad_sidebar_width', sidebarWidth); // Save to LocalStorage
 
     if (db) {
       try {
@@ -1218,7 +1484,8 @@
           bgEnabled,
           bgUrl,
           bgBlur,
-          bgBrightness
+          bgBrightness,
+          sidebarWidth // Save to Firebase
         }).catch(err => {
           console.warn("Firebase save error (saved locally instead):", err);
         });

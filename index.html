@@ -497,6 +497,13 @@
       color: var(--text-main);
     }
 
+    /* Editor links styling */
+    .editor-textarea a {
+      color: #38bdf8;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+
     .editor-textarea {
       flex: 1;
       background: transparent;
@@ -905,6 +912,8 @@
           <option value="5">Large</option>
           <option value="6">Huge</option>
         </select>
+
+        <button type="button" class="format-btn" id="clearFormatBtn" title="Clear Formatting & Backgrounds">✕</button>
       </div>
       <div id="noteContent" class="editor-textarea" contenteditable="true" data-placeholder="Start typing..."></div>
     </div>
@@ -1027,6 +1036,7 @@
   const codeBlockBtn = document.getElementById('codeBlockBtn');
   const fontNameSelect = document.getElementById('fontNameSelect');
   const fontSizeSelect = document.getElementById('fontSizeSelect');
+  const clearFormatBtn = document.getElementById('clearFormatBtn');
 
   const imgFloatingToolbar = document.getElementById('imgFloatingToolbar');
   const imgSizeSmall = document.getElementById('imgSizeSmall');
@@ -1190,6 +1200,7 @@
     initBackgroundControls();
     initRichTextToolbar();
     initImageInteractions();
+    setupLinkAndFormattingHandling();
 
     if (db) {
       setupCloudSync();
@@ -1439,6 +1450,60 @@
       triggerAutoSave();
     });
 
+    // Upgraded Clear Formatting Button to strip backgrounds, colors, and nested block styles
+    clearFormatBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      document.execCommand('removeFormat', false, null);
+      document.execCommand('unlink', false, null);
+      
+      const selection = window.getSelection();
+      if (selection.rangeCount > 0 && !selection.isCollapsed) {
+        const range = selection.getRangeAt(0);
+        const frag = range.extractContents();
+        const walker = document.createTreeWalker(frag, NodeFilter.SHOW_ELEMENT, null, false);
+        const nodesToRemove = [];
+        
+        while(walker.nextNode()) {
+          const node = walker.currentNode;
+          if (node.tagName !== 'BR' && !node.classList.contains('resizable-image-wrapper')) {
+            nodesToRemove.push(node);
+          }
+        }
+
+        nodesToRemove.forEach(node => {
+          // Clear background and inline colors explicitly
+          if (node.style) {
+            node.style.backgroundColor = '';
+            node.style.background = '';
+            node.style.color = '';
+            node.style.border = '';
+            node.style.padding = '';
+          }
+          const parent = node.parentNode;
+          if (parent && parent !== frag && !parent.isSameNode(frag)) {
+            while (node.firstChild) {
+              parent.insertBefore(node.firstChild, node);
+            }
+            parent.removeChild(node);
+          }
+        });
+
+        // Strip remaining styling attributes (style, class, bgcolor, etc.)
+        const allElements = frag.querySelectorAll('*');
+        allElements.forEach(el => {
+          el.removeAttribute('style');
+          el.removeAttribute('class');
+          el.removeAttribute('bgcolor');
+          el.removeAttribute('color');
+        });
+
+        range.insertNode(frag);
+      }
+
+      noteContentEl.focus();
+      triggerAutoSave();
+    });
+
     codeBlockBtn.addEventListener('click', (e) => {
       e.preventDefault();
       const selection = window.getSelection();
@@ -1509,6 +1574,76 @@
             
             triggerAutoSave();
           }
+        }
+      }
+    });
+  }
+
+  function setupLinkAndFormattingHandling() {
+    const urlRegex = /\bhttps?:\/\/[^\s<]+[^\s.,:;"')\]\s]/g;
+
+    function processTextNodesForLinks(rootNode) {
+      const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT, {
+        acceptNode: function(node) {
+          if (node.parentNode.tagName === 'A' || node.parentNode.tagName === 'PRE' || node.parentNode.closest('code')) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      });
+
+      const textNodesToReplace = [];
+      let currentNode;
+      while (currentNode = walker.nextNode()) {
+        if (urlRegex.test(currentNode.nodeValue)) {
+          textNodesToReplace.push(currentNode);
+        }
+        urlRegex.lastIndex = 0;
+      }
+
+      textNodesToReplace.forEach(textNode => {
+        const text = textNode.nodeValue;
+        const fragment = document.createDocumentFragment();
+        let lastIdx = 0;
+        let match;
+
+        urlRegex.lastIndex = 0;
+        while ((match = urlRegex.exec(text)) !== null) {
+          const matchStart = match.index;
+          const matchEnd = matchStart + match[0].length;
+
+          if (matchStart > lastIdx) {
+            fragment.appendChild(document.createTextNode(text.substring(lastIdx, matchStart)));
+          }
+
+          const a = document.createElement('a');
+          a.href = match[0];
+          a.textContent = match[0];
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          fragment.appendChild(a);
+
+          lastIdx = matchEnd;
+        }
+
+        if (lastIdx < text.length) {
+          fragment.appendChild(document.createTextNode(text.substring(lastIdx)));
+        }
+
+        textNode.parentNode.replaceChild(fragment, textNode);
+      });
+    }
+
+    noteContentEl.addEventListener('input', () => {
+      processTextNodesForLinks(noteContentEl);
+    });
+
+    noteContentEl.addEventListener('click', (e) => {
+      const link = e.target.closest('a');
+      if (link) {
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          window.open(link.href, '_blank', 'noopener,noreferrer');
         }
       }
     });

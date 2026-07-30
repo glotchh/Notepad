@@ -1226,12 +1226,31 @@
     
     const dataRef = ref(db, `profiles/${activeProfile}/notepad_data`);
     onValue(dataRef, (snapshot) => {
+      // Skip if we are currently typing/saving locally or animation is running
       if (saveTimeout || document.querySelector('.note-item.newly-added')) return;
 
       const data = snapshot.val();
       if (data && typeof data === 'object') {
         isRemoteUpdate = true;
-        if (Array.isArray(data.notes)) notes = data.notes;
+        
+        // Timestamp conflict resolution for notes
+        if (Array.isArray(data.notes)) {
+          // If local notes have newer changes than remote ones, preserve local ones
+          const remoteNotes = data.notes;
+          
+          remoteNotes.forEach(remoteNote => {
+            const localNote = notes.find(n => n.id === remoteNote.id);
+            if (localNote && localNote.updatedAt > remoteNote.updatedAt) {
+              // Local is newer! Keep local version instead of letting remote overwrite it
+              remoteNote.content = localNote.content;
+              remoteNote.title = localNote.title;
+              remoteNote.updatedAt = localNote.updatedAt;
+            }
+          });
+          
+          notes = remoteNotes;
+        }
+
         if (data.activeNoteId) activeNoteId = data.activeNoteId;
         if (data.bgEnabled !== undefined) bgEnabled = data.bgEnabled;
         if (data.bgUrl) bgUrl = data.bgUrl;

@@ -1226,22 +1226,18 @@
     
     const dataRef = ref(db, `profiles/${activeProfile}/notepad_data`);
     onValue(dataRef, (snapshot) => {
-      // Skip if we are currently typing/saving locally or animation is running
       if (saveTimeout || document.querySelector('.note-item.newly-added')) return;
 
       const data = snapshot.val();
       if (data && typeof data === 'object') {
         isRemoteUpdate = true;
         
-        // Timestamp conflict resolution for notes
         if (Array.isArray(data.notes)) {
-          // If local notes have newer changes than remote ones, preserve local ones
           const remoteNotes = data.notes;
           
           remoteNotes.forEach(remoteNote => {
             const localNote = notes.find(n => n.id === remoteNote.id);
             if (localNote && localNote.updatedAt > remoteNote.updatedAt) {
-              // Local is newer! Keep local version instead of letting remote overwrite it
               remoteNote.content = localNote.content;
               remoteNote.title = localNote.title;
               remoteNote.updatedAt = localNote.updatedAt;
@@ -1469,7 +1465,6 @@
       triggerAutoSave();
     });
 
-    // Upgraded Clear Formatting Button to strip backgrounds, colors, and nested block styles
     clearFormatBtn.addEventListener('click', (e) => {
       e.preventDefault();
       document.execCommand('removeFormat', false, null);
@@ -1490,7 +1485,6 @@
         }
 
         nodesToRemove.forEach(node => {
-          // Clear background and inline colors explicitly
           if (node.style) {
             node.style.backgroundColor = '';
             node.style.background = '';
@@ -1507,7 +1501,6 @@
           }
         });
 
-        // Strip remaining styling attributes (style, class, bgcolor, etc.)
         const allElements = frag.querySelectorAll('*');
         allElements.forEach(el => {
           el.removeAttribute('style');
@@ -1598,13 +1591,99 @@
     });
   }
 
+// --- Google Docs Style Link System ---
   function setupLinkAndFormattingHandling() {
     const urlRegex = /\bhttps?:\/\/[^\s<]+[^\s.,:;"')\]\s]/g;
 
+    function getCaretOffset(element) {
+      const selection = window.getSelection();
+      if (!selection.rangeCount) return 0;
+      const range = selection.getRangeAt(0);
+      const preCaretRange = range.cloneRange();
+      preCaretRange.selectNodeContents(element);
+      preCaretRange.setEnd(range.endContainer, range.endOffset);
+      return preCaretRange.toString().length;
+    }
+
+    function setCaretOffset(element, offset) {
+      const selection = window.getSelection();
+      const range = document.createRange();
+      let currentLen = 0;
+
+      function traverseNodes(node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const nextLen = currentLen + node.nodeValue.length;
+          if (offset <= nextLen) {
+            range.setStart(node, offset - currentLen);
+            range.collapse(true);
+            return true;
+          }
+          currentLen = nextLen;
+        } else {
+          for (let child of node.childNodes) {
+            if (traverseNodes(child)) return true;
+          }
+        }
+        return false;
+      }
+
+      traverseNodes(element);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+
     function processTextNodesForLinks(rootNode) {
+      const caretOffset = getCaretOffset(rootNode);
+      let modified = false;
+
+      // 1. Handle existing <a> tags: validate href and only absorb adjacent text if they touch directly as part of a continuous string edit
+      const anchors = rootNode.querySelectorAll('a');
+      anchors.forEach(a => {
+        const nextSibling = a.nextSibling;
+        const prevSibling = a.previousSibling;
+
+        // If typing occurred directly at the trailing edge (e.g., link immediately followed by plain text without space)
+        if (nextSibling && nextSibling.nodeType === Node.TEXT_NODE && !/^\s/.test(nextSibling.nodeValue)) {
+          a.textContent += nextSibling.nodeValue;
+          nextSibling.remove();
+          modified = true;
+        }
+        // If typing occurred directly at the leading edge
+        if (prevSibling && prevSibling.nodeType === Node.TEXT_NODE && !/\s$/.test(prevSibling.nodeValue)) {
+          a.textContent = prevSibling.nodeValue + a.textContent;
+          prevSibling.remove();
+          modified = true;
+        }
+
+        const currentText = a.textContent;
+        if (urlRegex.test(currentText)) {
+          urlRegex.lastIndex = 0;
+          try {
+            const normalizedCurrent = new URL(currentText).href;
+            if (a.href !== normalizedCurrent) {
+              a.href = normalizedCurrent;
+              modified = true;
+            }
+          } catch (err) {
+            if (a.href !== currentText) {
+              a.href = currentText;
+              modified = true;
+            }
+          }
+        } else {
+          const textNode = document.createTextNode(currentText);
+          a.parentNode.replaceChild(textNode, a);
+          modified = true;
+        }
+      });
+
+      // 2. Tree walker for plain text nodes that contain valid URLs
       const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT, {
         acceptNode: function(node) {
-          if (node.parentNode.tagName === 'A' || node.parentNode.tagName === 'PRE' || node.parentNode.closest('code')) {
+          if (node.parentNode.tagName === 'PRE' || node.parentNode.closest('code')) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          if (node.parentNode.tagName === 'A') {
             return NodeFilter.FILTER_REJECT;
           }
           return NodeFilter.FILTER_ACCEPT;
@@ -1614,11 +1693,13 @@
       const textNodesToReplace = [];
       let currentNode;
       while (currentNode = walker.nextNode()) {
+        urlRegex.lastIndex = 0;
         if (urlRegex.test(currentNode.nodeValue)) {
           textNodesToReplace.push(currentNode);
         }
-        urlRegex.lastIndex = 0;
       }
+
+      if (textNodesToReplace.length === 0 && !modified) return;
 
       textNodesToReplace.forEach(textNode => {
         const text = textNode.nodeValue;
@@ -1651,15 +1732,30 @@
 
         textNode.parentNode.replaceChild(fragment, textNode);
       });
+
+      setCaretOffset(rootNode, caretOffset);
     }
 
-    noteContentEl.addEventListener('input', () => {
+    // Allow natural editing keys and format asynchronously
+    noteContentEl.addEventListener('keydown', (e) => {
+      if (e.key === ' ' || e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Delete') {
+        setTimeout(() => {
+          processTextNodesForLinks(noteContentEl);
+          if (typeof triggerAutoSave === 'function') {
+            triggerAutoSave();
+          }
+        }, 0);
+      }
+    });
+
+    noteContentEl.addEventListener('blur', () => {
       processTextNodesForLinks(noteContentEl);
     });
 
     noteContentEl.addEventListener('click', (e) => {
       const link = e.target.closest('a');
       if (link) {
+        processTextNodesForLinks(noteContentEl);
         if (e.ctrlKey || e.metaKey) {
           e.preventDefault();
           window.open(link.href, '_blank', 'noopener,noreferrer');

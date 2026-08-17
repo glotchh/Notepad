@@ -1748,6 +1748,16 @@
       }
     });
 
+    // Instantly format links when pasted
+    noteContentEl.addEventListener('paste', () => {
+      setTimeout(() => {
+        processTextNodesForLinks(noteContentEl);
+        if (typeof triggerAutoSave === 'function') {
+          triggerAutoSave();
+        }
+      }, 0);
+    });
+
     noteContentEl.addEventListener('blur', () => {
       processTextNodesForLinks(noteContentEl);
     });

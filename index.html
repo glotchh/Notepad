@@ -1093,7 +1093,7 @@
     sidebarWidth = localStorage.getItem(`notepad_${profile}_sidebar_width`) || '260';
   }
 
-  async function checkAuth() {
+async function checkAuth() {
     const isAuth = localStorage.getItem('notepad_authenticated');
     activeProfile = localStorage.getItem('notepad_active_profile');
     
@@ -1109,23 +1109,19 @@
       if (!typed) return;
       const hashed = await hashPassword(typed);
 
+      let matchedProfile = null;
+
+      // 1. Check Firebase profiles if connected
       if (db) {
         try {
           const snapshot = await get(child(ref(db), 'profiles'));
           if (snapshot.exists()) {
             const profilesData = snapshot.val();
-            let matchedProfile = null;
-
             for (const [profileId, profileData] of Object.entries(profilesData)) {
               if (profileData && profileData.passcode_hash === hashed) {
                 matchedProfile = profileId;
                 break;
               }
-            }
-
-            if (matchedProfile) {
-              unlockApp(matchedProfile, hashed);
-              return;
             }
           }
         } catch (err) {
@@ -1133,23 +1129,20 @@
         }
       }
 
-      const localHashes = JSON.parse(localStorage.getItem('notepad_local_hashes') || '{}');
-      
-      if (Object.keys(localHashes).length === 0) {
-        unlockApp("default_profile", hashed);
-        return;
-      }
-
-      let matchedLocal = null;
-      for (const [profileId, hash] of Object.entries(localHashes)) {
-        if (hash === hashed) {
-          matchedLocal = profileId;
-          break;
+      // 2. Check local hashes if not found in Firebase
+      if (!matchedProfile) {
+        const localHashes = JSON.parse(localStorage.getItem('notepad_local_hashes') || '{}');
+        for (const [profileId, hash] of Object.entries(localHashes)) {
+          if (hash === hashed) {
+            matchedProfile = profileId;
+            break;
+          }
         }
       }
 
-      if (matchedLocal) {
-        unlockApp(matchedLocal, hashed);
+      // 3. If a match is found, unlock. Otherwise, reject with error.
+      if (matchedProfile) {
+        unlockApp(matchedProfile, hashed);
       } else {
         showAuthError("Incorrect passcode");
       }

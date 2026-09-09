@@ -1093,7 +1093,7 @@
     sidebarWidth = localStorage.getItem(`notepad_${profile}_sidebar_width`) || '260';
   }
 
-async function checkAuth() {
+  async function checkAuth() {
     const isAuth = localStorage.getItem('notepad_authenticated');
     activeProfile = localStorage.getItem('notepad_active_profile');
     
@@ -1111,7 +1111,6 @@ async function checkAuth() {
 
       let matchedProfile = null;
 
-      // 1. Check Firebase profiles if connected
       if (db) {
         try {
           const snapshot = await get(child(ref(db), 'profiles'));
@@ -1129,7 +1128,6 @@ async function checkAuth() {
         }
       }
 
-      // 2. Check local hashes if not found in Firebase
       if (!matchedProfile) {
         const localHashes = JSON.parse(localStorage.getItem('notepad_local_hashes') || '{}');
         for (const [profileId, hash] of Object.entries(localHashes)) {
@@ -1140,7 +1138,6 @@ async function checkAuth() {
         }
       }
 
-      // 3. If a match is found, unlock. Otherwise, reject with error.
       if (matchedProfile) {
         unlockApp(matchedProfile, hashed);
       } else {
@@ -1240,17 +1237,13 @@ async function checkAuth() {
           notes = remoteNotes;
         }
 
-        if (data.activeNoteId) activeNoteId = data.activeNoteId;
         if (data.bgEnabled !== undefined) bgEnabled = data.bgEnabled;
         if (data.bgUrl) bgUrl = data.bgUrl;
         if (data.bgBlur) bgBlur = data.bgBlur;
         if (data.bgBrightness) bgBrightness = data.bgBrightness;
-        
-        if (data.sidebarWidth) {
-          sidebarWidth = data.sidebarWidth;
-          if (window.innerWidth > 768) {
-            sidebar.style.width = `${sidebarWidth}px`;
-          }
+
+        if (!activeNoteId || !notes.find(n => n.id === activeNoteId)) {
+          if (notes.length > 0) activeNoteId = notes[0].id;
         }
 
         renderSidebarFull();
@@ -1584,7 +1577,6 @@ async function checkAuth() {
     });
   }
 
-// --- Google Docs Style Link System ---
   function setupLinkAndFormattingHandling() {
     const urlRegex = /\bhttps?:\/\/[^\s<]+[^\s.,:;"')\]\s]/g;
 
@@ -1629,19 +1621,16 @@ async function checkAuth() {
       const caretOffset = getCaretOffset(rootNode);
       let modified = false;
 
-      // 1. Handle existing <a> tags: validate href and only absorb adjacent text if they touch directly as part of a continuous string edit
       const anchors = rootNode.querySelectorAll('a');
       anchors.forEach(a => {
         const nextSibling = a.nextSibling;
         const prevSibling = a.previousSibling;
 
-        // If typing occurred directly at the trailing edge (e.g., link immediately followed by plain text without space)
         if (nextSibling && nextSibling.nodeType === Node.TEXT_NODE && !/^\s/.test(nextSibling.nodeValue)) {
           a.textContent += nextSibling.nodeValue;
           nextSibling.remove();
           modified = true;
         }
-        // If typing occurred directly at the leading edge
         if (prevSibling && prevSibling.nodeType === Node.TEXT_NODE && !/\s$/.test(prevSibling.nodeValue)) {
           a.textContent = prevSibling.nodeValue + a.textContent;
           prevSibling.remove();
@@ -1670,7 +1659,6 @@ async function checkAuth() {
         }
       });
 
-      // 2. Tree walker for plain text nodes that contain valid URLs
       const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT, {
         acceptNode: function(node) {
           if (node.parentNode.tagName === 'PRE' || node.parentNode.closest('code')) {
@@ -1729,7 +1717,6 @@ async function checkAuth() {
       setCaretOffset(rootNode, caretOffset);
     }
 
-    // Allow natural editing keys and format asynchronously
     noteContentEl.addEventListener('keydown', (e) => {
       if (e.key === ' ' || e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Delete') {
         setTimeout(() => {
@@ -1741,7 +1728,6 @@ async function checkAuth() {
       }
     });
 
-    // Instantly format links when pasted
     noteContentEl.addEventListener('paste', () => {
       setTimeout(() => {
         processTextNodesForLinks(noteContentEl);
@@ -2135,7 +2121,6 @@ async function checkAuth() {
       try {
         set(ref(db, `profiles/${activeProfile}/notepad_data`), {
           notes,
-          activeNoteId,
           bgEnabled,
           bgUrl,
           bgBlur,
